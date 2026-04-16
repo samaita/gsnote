@@ -16,7 +16,8 @@ before:
     - go generate ./...
 
 builds:
-  - main: ./...
+  - main: ./cmd/bot
+    binary: gsnote
     env:
       - CGO_ENABLED=0
     goos:
