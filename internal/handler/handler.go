@@ -3,6 +3,8 @@ package handler
 import (
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -14,10 +16,13 @@ import (
 
 const helpText = `Usage:
   /habit <name> [value] [note]
+  /habit list
 
   name  — single word (required)
   value — number, supports decimals (optional)
   note  — free text (optional)
+  
+  list  — show all tracked habits (first 10 only)
 
 Examples:
   /habit work
@@ -25,6 +30,7 @@ Examples:
   /habit pushup 20
   /habit pushup 20 after dinner
   /habit run 2.5 morning jog
+  /habit list
 
 /help — show this message`
 
@@ -50,8 +56,6 @@ func (h *Handler) Handle(update tgbotapi.Update) {
 	msg := update.Message
 	text := strings.TrimSpace(msg.Text)
 
-	log.Printf("%+v", h.whitelistTelegramID)
-
 	if h.whitelistTelegramID != nil && !h.whitelistTelegramID[msg.From.ID] {
 		return
 	}
@@ -66,7 +70,52 @@ func (h *Handler) Handle(update tgbotapi.Update) {
 	}
 }
 
+func (h *Handler) handleHabitList(msg *tgbotapi.Message) {
+	entries, err := os.ReadDir(h.habitsRoot)
+	if err != nil {
+		log.Printf("read habits dir error: %v", err)
+		h.reply(msg, "Could not read habits folder.")
+		return
+	}
+
+	var habits []string
+	for _, e := range entries {
+		if !e.IsDir() && filepath.Ext(e.Name()) == ".md" {
+			habits = append(habits, strings.TrimSuffix(e.Name(), ".md"))
+		}
+	}
+
+	if len(habits) == 0 {
+		h.reply(msg, "No habits found.")
+		return
+	}
+
+	const limit = 10
+	truncated := len(habits) > limit
+	if truncated {
+		habits = habits[:limit]
+	}
+
+	var sb strings.Builder
+	sb.WriteString("Available habits:\n")
+	for _, name := range habits {
+		sb.WriteString("  • ")
+		sb.WriteString(name)
+		sb.WriteString("\n")
+	}
+	if truncated {
+		sb.WriteString("\nToo many habits to display. Please check Obsidian for the full list.")
+	}
+
+	h.reply(msg, sb.String())
+}
+
 func (h *Handler) handleHabit(msg *tgbotapi.Message, args string) {
+	if strings.TrimSpace(args) == "list" {
+		h.handleHabitList(msg)
+		return
+	}
+
 	input, err := parser.Parse(args)
 	if err != nil {
 		h.reply(msg, "Please re-enter with the correct format. Use /help.")
