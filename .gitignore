@@ -1,0 +1,9 @@
+# Build
+gsnote
+
+# Markdown (except README)
+*.md
+!README.md
+
+# Environment
+.env

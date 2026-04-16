@@ -1,0 +1,80 @@
+package handler
+
+import (
+	"fmt"
+	"log"
+	"strings"
+	"time"
+
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+
+	"github.com/axonigma/gsnote/internal/parser"
+	"github.com/axonigma/gsnote/internal/writer"
+)
+
+const helpText = `Usage:
+  /habit <name> [value] [note]
+
+  name  — single word (required)
+  value — number, supports decimals (optional)
+  note  — free text (optional)
+
+Examples:
+  /habit work
+  /habit work deep focus session
+  /habit pushup 20
+  /habit pushup 20 after dinner
+  /habit run 2.5 morning jog
+
+/help — show this message`
+
+// Handler holds dependencies for command handling.
+type Handler struct {
+	bot        *tgbotapi.BotAPI
+	habitsRoot string
+}
+
+func New(bot *tgbotapi.BotAPI, habitsRoot string) *Handler {
+	return &Handler{bot: bot, habitsRoot: habitsRoot}
+}
+
+// Handle routes incoming updates to the appropriate command handler.
+func (h *Handler) Handle(update tgbotapi.Update) {
+	if update.Message == nil {
+		return
+	}
+
+	msg := update.Message
+	text := strings.TrimSpace(msg.Text)
+
+	switch {
+	case strings.HasPrefix(text, "/habit"):
+		h.handleHabit(msg, strings.TrimPrefix(text, "/habit"))
+	case text == "/help":
+		h.reply(msg, helpText)
+	}
+}
+
+func (h *Handler) handleHabit(msg *tgbotapi.Message, args string) {
+	input, err := parser.Parse(args)
+	if err != nil {
+		h.reply(msg, "Please re-enter with the correct format. Use /help.")
+		return
+	}
+
+	if err := writer.Write(h.habitsRoot, input, time.Now()); err != nil {
+		log.Printf("write error for habit %q: %v", input.Habit, err)
+		h.reply(msg, "Try again with the correct command. Use /help.")
+		return
+	}
+
+	h.reply(msg, fmt.Sprintf("Logged: %s", input.Habit))
+}
+
+func (h *Handler) reply(msg *tgbotapi.Message, text string) {
+	reply := tgbotapi.NewMessage(msg.Chat.ID, text)
+	reply.ReplyToMessageID = msg.MessageID
+	if _, err := h.bot.Send(reply); err != nil {
+		log.Printf("send reply error: %v", err)
+	}
+}
