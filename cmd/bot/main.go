@@ -14,8 +14,13 @@ import (
 )
 
 func main() {
-	if err := godotenv.Load(); err != nil {
-		log.Println("no .env file found, reading from environment")
+	xdgConfig := os.ExpandEnv("$HOME/.config/gsnote/.env")
+	localConfig := ".env"
+
+	if err := godotenv.Load(xdgConfig); err != nil {
+		if err2 := godotenv.Load(localConfig); err2 != nil {
+			log.Printf("Missing config: ~/.config/gsnote/.env")
+		}
 	}
 
 	token := os.Getenv("TELEGRAM_BOT_TOKEN")
