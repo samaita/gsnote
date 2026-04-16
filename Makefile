@@ -7,3 +7,6 @@ build:
 
 clean:
 	rm -f $(BINARY)
+
+dev:
+	go run ./cmd/bot

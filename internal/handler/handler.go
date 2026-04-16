@@ -28,14 +28,17 @@ Examples:
 
 /help — show this message`
 
+const warnText = `Command not found, use /help for guide`
+
 // Handler holds dependencies for command handling.
 type Handler struct {
-	bot        *tgbotapi.BotAPI
-	habitsRoot string
+	bot                 *tgbotapi.BotAPI
+	habitsRoot          string
+	whitelistTelegramID map[int64]bool
 }
 
-func New(bot *tgbotapi.BotAPI, habitsRoot string) *Handler {
-	return &Handler{bot: bot, habitsRoot: habitsRoot}
+func New(bot *tgbotapi.BotAPI, habitsRoot string, whitelistTelegramID map[int64]bool) *Handler {
+	return &Handler{bot: bot, habitsRoot: habitsRoot, whitelistTelegramID: whitelistTelegramID}
 }
 
 // Handle routes incoming updates to the appropriate command handler.
@@ -47,11 +50,19 @@ func (h *Handler) Handle(update tgbotapi.Update) {
 	msg := update.Message
 	text := strings.TrimSpace(msg.Text)
 
+	log.Printf("%+v", h.whitelistTelegramID)
+
+	if h.whitelistTelegramID != nil && !h.whitelistTelegramID[msg.From.ID] {
+		return
+	}
+
 	switch {
 	case strings.HasPrefix(text, "/habit"):
 		h.handleHabit(msg, strings.TrimPrefix(text, "/habit"))
 	case text == "/help":
 		h.reply(msg, helpText)
+	case strings.Split(text, "")[0] == "/":
+		h.reply(msg, warnText)
 	}
 }
 

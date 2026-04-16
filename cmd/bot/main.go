@@ -1,8 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
+	"strconv"
+	"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/joho/godotenv"
@@ -25,6 +28,17 @@ func main() {
 		log.Fatal("HABITS_ROOT is required")
 	}
 
+	whitelistTelegramIDMap := make(map[int64]bool)
+	whitelistTelegramIDStr := os.Getenv("WHITELIST_TELEGRAM_ID")
+	if whitelistTelegramIDStr != "" {
+		for i := range strings.Split(whitelistTelegramIDStr, ",") {
+			res, err := strconv.ParseInt(strings.Split(whitelistTelegramIDStr, ",")[i], 10, 64)
+			if err == nil {
+				whitelistTelegramIDMap[res] = true
+			}
+		}
+	}
+
 	if err := os.MkdirAll(habitsRoot, 0755); err != nil {
 		log.Fatalf("create habits root: %v", err)
 	}
@@ -34,9 +48,15 @@ func main() {
 		log.Fatalf("init bot: %v", err)
 	}
 
-	log.Printf("authorized as @%s", bot.Self.UserName)
+	log.Printf("authorized as @%s\n", bot.Self.UserName)
 
-	h := handler.New(bot, habitsRoot)
+	var whitelistedTelegramIDs []string
+	for i := range whitelistTelegramIDMap {
+		whitelistedTelegramIDs = append(whitelistedTelegramIDs, fmt.Sprintf("%d", i))
+	}
+	log.Printf("allowed for %s\n", strings.Join(whitelistedTelegramIDs, ","))
+
+	h := handler.New(bot, habitsRoot, whitelistTelegramIDMap)
 
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
