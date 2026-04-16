@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -14,7 +15,21 @@ import (
 )
 
 func main() {
-	xdgConfig := os.ExpandEnv("$HOME/.config/gsnote/.env")
+	home, err := os.UserHomeDir()
+	if err != nil {
+		log.Fatalf("get home dir: %v", err)
+	}
+
+	configDir := filepath.Join(home, ".config", "gsnote")
+	if configDir == home {
+		log.Fatal("invalid config dir: equals home")
+	}
+
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		log.Fatalf("create config dir: %v", err)
+	}
+
+	xdgConfig := filepath.Join(configDir, ".env")
 	localConfig := ".env"
 
 	if err := godotenv.Load(xdgConfig); err != nil {
