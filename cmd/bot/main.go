@@ -14,7 +14,11 @@ import (
 	"github.com/axonigma/gsnote/internal/handler"
 )
 
+var version = "dev"
+
 func main() {
+	log.Printf("gsnote version=%s", version)
+
 	home, err := os.UserHomeDir()
 	if err != nil {
 		log.Fatalf("get home dir: %v", err)
@@ -32,11 +36,17 @@ func main() {
 	xdgConfig := filepath.Join(configDir, ".env")
 	localConfig := ".env"
 
+	loadedConfig := ""
 	if err := godotenv.Load(xdgConfig); err != nil {
 		if err2 := godotenv.Load(localConfig); err2 != nil {
-			log.Printf("Missing config: ~/.config/gsnote/.env")
+			log.Printf("missing config: ~/.config/gsnote/.env")
+		} else {
+			loadedConfig = localConfig
 		}
+	} else {
+		loadedConfig = xdgConfig
 	}
+	log.Printf("config file=%s", loadedConfig)
 
 	token := os.Getenv("TELEGRAM_BOT_TOKEN")
 	if token == "" {
@@ -62,6 +72,8 @@ func main() {
 	if err := os.MkdirAll(habitsRoot, 0755); err != nil {
 		log.Fatalf("create habits root: %v", err)
 	}
+
+	log.Printf("config habits_root=%s whitelist_telegram_id=%s", habitsRoot, whitelistTelegramIDStr)
 
 	bot, err := tgbotapi.NewBotAPI(token)
 	if err != nil {

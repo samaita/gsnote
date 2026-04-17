@@ -10,13 +10,25 @@ mkdir -p "$CONFIG_DIR"
 mkdir -p "$BINARY_DIR"
 
 if [ ! -f "$CONFIG_FILE" ]; then
-    cat > "$CONFIG_FILE" <<'EOF'
-TELEGRAM_BOT_TOKEN=your_bot_token_here
-HABITS_ROOT=/path/to/your/habits/folder
-WHITELIST_TELEGRAM_ID=your_telegram_id_from_userinfobot
+    read -rp "Telegram bot token: " BOT_TOKEN
+    read -rp "Habits folder [$HOME/gsnote]: " HABITS_ROOT_INPUT
+    HABITS_ROOT="${HABITS_ROOT_INPUT:-$HOME/gsnote}"
+    read -rp "Whitelist Telegram ID (from @userinfobot): " WHITELIST_ID
+
+    mkdir -p "$HABITS_ROOT"
+
+    quote() { local v="$1"; [[ "$v" == \"*\" ]] && echo "$v" || echo "\"$v\""; }
+
+    cat > "$CONFIG_FILE" <<EOF
+TELEGRAM_BOT_TOKEN=$(quote "$BOT_TOKEN")
+HABITS_ROOT=$(quote "$HABITS_ROOT")
+WHITELIST_TELEGRAM_ID=$(quote "$WHITELIST_ID")
 EOF
-    echo "Created config: $CONFIG_FILE"
-    echo "Edit it before starting gsnote."
+    echo ""
+    echo "Config saved to: $CONFIG_FILE"
+    echo "Habits folder:   $HABITS_ROOT"
+    echo ""
+    echo "You can reconfigure anytime by editing: $CONFIG_FILE"
 else
     echo "Config already exists: $CONFIG_FILE"
 fi
@@ -61,11 +73,10 @@ RestartSec=5
 WantedBy=default.target
 EOF
     systemctl --user daemon-reload
-    systemctl --user enable gsnote
+    systemctl --user enable --now gsnote
     echo ""
-    echo "Systemd service installed: $SERVICE_FILE"
+    echo "Systemd service installed and started: $SERVICE_FILE"
     echo ""
-    echo "  Start:  systemctl --user start gsnote"
     echo "  Status: systemctl --user status gsnote"
     echo "  Logs:   journalctl --user -u gsnote -f"
 fi

@@ -38,27 +38,43 @@ Each entry is appended to `<HABITS_ROOT>/<habit>.md`:
 - 2026-04-16 20:30 | 20 | after dinner
 ```
 
-## Setup
+## Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/samaita/gsnote/main/install.sh | bash
+```
+
+The script will:
+- Prompt for your Telegram bot token, habits folder, and Telegram ID
+- Download the latest release binary to `~/.local/bin/gsnote`
+- Write config to `~/.config/gsnote/.env`
+- Optionally set up a systemd user service
+
+> Get your bot token from [@BotFather](https://t.me/BotFather) and your Telegram ID from [@userinfobot](https://t.me/userinfobot).
+
+## Setup (manual)
 
 ### 1. Clone and build
 
 ```bash
-git clone https://github.com/axonigma/gsnote.git
+git clone https://github.com/samaita/gsnote.git
 cd gsnote
 make build
 ```
 
 ### 2. Configure environment
 
-Create a `.env` file:
+Create `~/.config/gsnote/.env`:
 
 ```env
 TELEGRAM_BOT_TOKEN=your_bot_token_here
-HABITS_ROOT=/path/to/habits
+HABITS_ROOT=/home/youruser/gsnote
+WHITELIST_TELEGRAM_ID=your_telegram_id
 ```
 
-- `TELEGRAM_BOT_TOKEN` — obtain from [@BotFather](https://t.me/BotFather) on Telegram
+- `TELEGRAM_BOT_TOKEN` — obtain from [@BotFather](https://t.me/BotFather)
 - `HABITS_ROOT` — directory where habit markdown files will be written (created automatically)
+- `WHITELIST_TELEGRAM_ID` — your numeric Telegram ID from [@userinfobot](https://t.me/userinfobot)
 
 ### 3. Run
 
@@ -66,15 +82,14 @@ HABITS_ROOT=/path/to/habits
 ./gsnote
 ```
 
-## Run as a systemd service
+## Run as a systemd user service
 
-Copy and edit the example unit file:
+The install script sets this up automatically. To do it manually:
 
 ```bash
-cp gsnote.service.example /etc/systemd/system/gsnote.service
-# edit User, WorkingDirectory, EnvironmentFile, ExecStart
-sudo systemctl daemon-reload
-sudo systemctl enable --now gsnote
+systemctl --user enable --now gsnote
+systemctl --user status gsnote
+journalctl --user -u gsnote -f
 ```
 
 ## Bot commands
