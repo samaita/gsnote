@@ -87,6 +87,7 @@ After=network.target
 [Service]
 ExecStart=$BINARY_DIR/gsnote
 EnvironmentFile=$CONFIG_FILE
+Environment=HOME=$HOME
 Restart=on-failure
 RestartSec=5
 
