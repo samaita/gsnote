@@ -26,7 +26,7 @@ if [ -f "$BINARY" ]; then
     echo "Removed: $BINARY"
 fi
 
-read -rp "Remove config directory $CONFIG_DIR? [y/N] " REMOVE_CONFIG
+read -rp "Remove config directory $CONFIG_DIR? [y/N] " REMOVE_CONFIG </dev/tty
 if [[ "$REMOVE_CONFIG" =~ ^[Yy]$ ]]; then
     rm -rf "$CONFIG_DIR"
     echo "Removed: $CONFIG_DIR"

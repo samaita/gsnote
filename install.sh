@@ -10,10 +10,10 @@ mkdir -p "$CONFIG_DIR"
 mkdir -p "$BINARY_DIR"
 
 if [ ! -f "$CONFIG_FILE" ]; then
-    read -rp "Telegram bot token: " BOT_TOKEN
-    read -rp "Habits folder [$HOME/gsnote]: " HABITS_ROOT_INPUT
+    read -rp "Telegram bot token: " BOT_TOKEN </dev/tty
+    read -rp "Habits folder [$HOME/gsnote]: " HABITS_ROOT_INPUT </dev/tty
     HABITS_ROOT="${HABITS_ROOT_INPUT:-$HOME/gsnote}"
-    read -rp "Whitelist Telegram ID (from @userinfobot): " WHITELIST_ID
+    read -rp "Whitelist Telegram ID (from @userinfobot): " WHITELIST_ID </dev/tty
 
     mkdir -p "$HABITS_ROOT"
 
@@ -70,7 +70,7 @@ else
     echo "Installed: $BINARY_DIR/gsnote ($LATEST)"
 fi
 
-read -rp "Set up systemd user service? [y/N] " SETUP_SYSTEMD
+read -rp "Set up systemd user service? [y/N] " SETUP_SYSTEMD </dev/tty
 if [[ "$SETUP_SYSTEMD" =~ ^[Yy]$ ]]; then
     SYSTEMD_DIR="$HOME/.config/systemd/user"
     SERVICE_FILE="$SYSTEMD_DIR/gsnote.service"
