@@ -70,12 +70,39 @@ else
     echo "Installed: $BINARY_DIR/gsnote ($LATEST)"
 fi
 
-read -rp "Set up systemd user service? [y/N] " SETUP_SYSTEMD </dev/tty
+read -rp "Set up systemd service? [y/N] " SETUP_SYSTEMD </dev/tty
 if [[ "$SETUP_SYSTEMD" =~ ^[Yy]$ ]]; then
-    SYSTEMD_DIR="$HOME/.config/systemd/user"
-    SERVICE_FILE="$SYSTEMD_DIR/gsnote.service"
-    mkdir -p "$SYSTEMD_DIR"
-    cat > "$SERVICE_FILE" <<EOF
+    if [ "$(id -u)" -eq 0 ]; then
+        # Running as root: use system-level service
+        SYSTEMD_DIR="/etc/systemd/system"
+        SERVICE_FILE="$SYSTEMD_DIR/gsnote.service"
+        cat > "$SERVICE_FILE" <<EOF
+[Unit]
+Description=gsnote Telegram bot
+After=network.target
+
+[Service]
+ExecStart=$BINARY_DIR/gsnote
+EnvironmentFile=$CONFIG_FILE
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        systemctl daemon-reload
+        systemctl enable --now gsnote
+        echo ""
+        echo "Systemd service installed and started: $SERVICE_FILE"
+        echo ""
+        echo "  Status: systemctl status gsnote"
+        echo "  Logs:   journalctl -u gsnote -f"
+    else
+        # Regular user: use user-level service
+        SYSTEMD_DIR="$HOME/.config/systemd/user"
+        SERVICE_FILE="$SYSTEMD_DIR/gsnote.service"
+        mkdir -p "$SYSTEMD_DIR"
+        cat > "$SERVICE_FILE" <<EOF
 [Unit]
 Description=gsnote Telegram bot
 After=network.target
@@ -89,11 +116,12 @@ RestartSec=5
 [Install]
 WantedBy=default.target
 EOF
-    systemctl --user daemon-reload
-    systemctl --user enable --now gsnote
-    echo ""
-    echo "Systemd service installed and started: $SERVICE_FILE"
-    echo ""
-    echo "  Status: systemctl --user status gsnote"
-    echo "  Logs:   journalctl --user -u gsnote -f"
+        systemctl --user daemon-reload
+        systemctl --user enable --now gsnote
+        echo ""
+        echo "Systemd service installed and started: $SERVICE_FILE"
+        echo ""
+        echo "  Status: systemctl --user status gsnote"
+        echo "  Logs:   journalctl --user -u gsnote -f"
+    fi
 fi

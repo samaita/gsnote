@@ -3,21 +3,28 @@ set -e
 
 BINARY="$HOME/.local/bin/gsnote"
 CONFIG_DIR="$HOME/.config/gsnote"
-SERVICE_FILE="$HOME/.config/systemd/user/gsnote.service"
 
-if systemctl --user is-active --quiet gsnote 2>/dev/null; then
-    systemctl --user stop gsnote
+if [ "$(id -u)" -eq 0 ]; then
+    SERVICE_FILE="/etc/systemd/system/gsnote.service"
+    SYSTEMCTL="systemctl"
+else
+    SERVICE_FILE="$HOME/.config/systemd/user/gsnote.service"
+    SYSTEMCTL="systemctl --user"
+fi
+
+if $SYSTEMCTL is-active --quiet gsnote 2>/dev/null; then
+    $SYSTEMCTL stop gsnote
     echo "Stopped systemd service."
 fi
 
-if systemctl --user is-enabled --quiet gsnote 2>/dev/null; then
-    systemctl --user disable gsnote
+if $SYSTEMCTL is-enabled --quiet gsnote 2>/dev/null; then
+    $SYSTEMCTL disable gsnote
     echo "Disabled systemd service."
 fi
 
 if [ -f "$SERVICE_FILE" ]; then
     rm "$SERVICE_FILE"
-    systemctl --user daemon-reload
+    $SYSTEMCTL daemon-reload
     echo "Removed: $SERVICE_FILE"
 fi
 
