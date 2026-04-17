@@ -54,7 +54,10 @@ if [ -x "$BINARY_DIR/gsnote" ]; then
     fi
 fi
 
-if [ "$INSTALLED_VERSION" = "$LATEST" ]; then
+INSTALLED_VERSION_NORM="${INSTALLED_VERSION#v}"
+LATEST_NORM="${LATEST#v}"
+
+if [ "$INSTALLED_VERSION_NORM" = "$LATEST_NORM" ]; then
     echo "gsnote $LATEST is already up to date."
 else
     if [ -n "$INSTALLED_VERSION" ]; then
