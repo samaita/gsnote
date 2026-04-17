@@ -45,13 +45,30 @@ LATEST=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | grep 
 ARCHIVE="gsnote_${OS}_${ARCH}.tar.gz"
 URL="https://github.com/$REPO/releases/download/$LATEST/$ARCHIVE"
 
-echo "Downloading gsnote $LATEST..."
-curl -fsSL "$URL" -o "/tmp/$ARCHIVE"
-tar -xzf "/tmp/$ARCHIVE" -C /tmp gsnote
-mv /tmp/gsnote "$BINARY_DIR/gsnote"
-chmod +x "$BINARY_DIR/gsnote"
-rm "/tmp/$ARCHIVE"
-echo "Installed: $BINARY_DIR/gsnote"
+INSTALLED_VERSION=""
+if [ -x "$BINARY_DIR/gsnote" ]; then
+    INSTALLED_VERSION=$(timeout 3s "$BINARY_DIR/gsnote" -version 2>/dev/null || true)
+    if [ -z "$INSTALLED_VERSION" ]; then
+        echo "Existing gsnote did not return version (old build). Removing..."
+        rm -f "$BINARY_DIR/gsnote"
+    fi
+fi
+
+if [ "$INSTALLED_VERSION" = "$LATEST" ]; then
+    echo "gsnote $LATEST is already up to date."
+else
+    if [ -n "$INSTALLED_VERSION" ]; then
+        echo "Upgrading gsnote $INSTALLED_VERSION -> $LATEST..."
+    else
+        echo "Downloading gsnote $LATEST..."
+    fi
+    curl -fsSL "$URL" -o "/tmp/$ARCHIVE"
+    tar -xzf "/tmp/$ARCHIVE" -C /tmp gsnote
+    mv /tmp/gsnote "$BINARY_DIR/gsnote"
+    chmod +x "$BINARY_DIR/gsnote"
+    rm "/tmp/$ARCHIVE"
+    echo "Installed: $BINARY_DIR/gsnote ($LATEST)"
+fi
 
 read -rp "Set up systemd user service? [y/N] " SETUP_SYSTEMD
 if [[ "$SETUP_SYSTEMD" =~ ^[Yy]$ ]]; then

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -17,6 +18,13 @@ import (
 var version = "dev"
 
 func main() {
+	showVersion := flag.Bool("version", false, "print version and exit")
+	flag.Parse()
+	if *showVersion {
+		fmt.Println(version)
+		os.Exit(0)
+	}
+
 	log.Printf("gsnote version=%s", version)
 
 	home, err := os.UserHomeDir()

@@ -52,6 +52,27 @@ The script will:
 
 > Get your bot token from [@BotFather](https://t.me/BotFather) and your Telegram ID from [@userinfobot](https://t.me/userinfobot).
 
+## Upgrade
+
+Run the same install script — it detects the installed version and upgrades only if a newer release is available:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/samaita/gsnote/main/install.sh | bash
+```
+
+Existing config at `~/.config/gsnote/.env` is never overwritten.
+
+## Uninstall
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/samaita/gsnote/main/uninstall.sh | bash
+```
+
+The script will:
+- Stop and disable the systemd service (if active)
+- Remove the binary at `~/.local/bin/gsnote`
+- Prompt before removing config at `~/.config/gsnote/`
+
 ## Setup (manual)
 
 ### 1. Clone and build
