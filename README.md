@@ -89,12 +89,14 @@ Create `~/.config/gsnote/.env`:
 
 ```env
 TELEGRAM_BOT_TOKEN=your_bot_token_here
-HABITS_ROOT=/home/youruser/gsnote
+SYNC_ROOT=/home/youruser/vault
+HABITS_ROOT=/home/youruser/vault/Habits
 WHITELIST_TELEGRAM_ID=your_telegram_id
 ```
 
 - `TELEGRAM_BOT_TOKEN` — obtain from [@BotFather](https://t.me/BotFather)
-- `HABITS_ROOT` — directory where habit markdown files will be written (created automatically)
+- `SYNC_ROOT` — root of the git repository to sync (used by `/sync`)
+- `HABITS_ROOT` — subdirectory where habit markdown files will be written (created automatically)
 - `WHITELIST_TELEGRAM_ID` — your numeric Telegram ID from [@userinfobot](https://t.me/userinfobot)
 
 ### 3. Run
@@ -118,6 +120,7 @@ journalctl --user -u gsnote -f
 | Command | Description |
 |---------|-------------|
 | `/habit <name> [value] [note]` | Log a habit entry |
+| `/sync` | Git add, commit, and push `SYNC_ROOT` to origin main |
 | `/help` | Show usage |
 
 ## Requirements

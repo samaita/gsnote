@@ -11,8 +11,10 @@ mkdir -p "$BINARY_DIR"
 
 if [ ! -f "$CONFIG_FILE" ]; then
     read -rp "Telegram bot token: " BOT_TOKEN </dev/tty
-    read -rp "Habits folder [$HOME/gsnote]: " HABITS_ROOT_INPUT </dev/tty
-    HABITS_ROOT="${HABITS_ROOT_INPUT:-$HOME/gsnote}"
+    read -rp "Vault (sync) folder [$HOME/vault]: " SYNC_ROOT_INPUT </dev/tty
+    SYNC_ROOT="${SYNC_ROOT_INPUT:-$HOME/vault}"
+    read -rp "Habits folder [$SYNC_ROOT/Habits]: " HABITS_ROOT_INPUT </dev/tty
+    HABITS_ROOT="${HABITS_ROOT_INPUT:-$SYNC_ROOT/Habits}"
     read -rp "Whitelist Telegram ID (from @userinfobot): " WHITELIST_ID </dev/tty
 
     mkdir -p "$HABITS_ROOT"
@@ -21,12 +23,14 @@ if [ ! -f "$CONFIG_FILE" ]; then
 
     cat > "$CONFIG_FILE" <<EOF
 TELEGRAM_BOT_TOKEN=$(quote "$BOT_TOKEN")
+SYNC_ROOT=$(quote "$SYNC_ROOT")
 HABITS_ROOT=$(quote "$HABITS_ROOT")
 WHITELIST_TELEGRAM_ID=$(quote "$WHITELIST_ID")
 EOF
     echo ""
     echo "Config saved to: $CONFIG_FILE"
-    echo "Habits folder:   $HABITS_ROOT"
+    echo "Sync (vault) folder: $SYNC_ROOT"
+    echo "Habits folder:       $HABITS_ROOT"
     echo ""
     echo "You can reconfigure anytime by editing: $CONFIG_FILE"
 else

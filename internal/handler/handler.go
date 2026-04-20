@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -34,8 +35,15 @@ Examples:
 
 const helpText = `Available commands:
   /habit — log or list habits
+  /sync  — git add, commit, and push to origin main
 
 Tip: type a command alone to see its full usage.`
+
+const (
+	cmdHabit = "/habit"
+	cmdSync  = "/sync"
+	cmdHelp  = "/help"
+)
 
 const habitCmdList = "list"
 
@@ -45,11 +53,12 @@ const warnText = `Command not found, use /help for guide`
 type Handler struct {
 	bot                 *tgbotapi.BotAPI
 	habitsRoot          string
+	syncRoot            string
 	whitelistTelegramID map[int64]bool
 }
 
-func New(bot *tgbotapi.BotAPI, habitsRoot string, whitelistTelegramID map[int64]bool) *Handler {
-	return &Handler{bot: bot, habitsRoot: habitsRoot, whitelistTelegramID: whitelistTelegramID}
+func New(bot *tgbotapi.BotAPI, habitsRoot, syncRoot string, whitelistTelegramID map[int64]bool) *Handler {
+	return &Handler{bot: bot, habitsRoot: habitsRoot, syncRoot: syncRoot, whitelistTelegramID: whitelistTelegramID}
 }
 
 // Handle routes incoming updates to the appropriate command handler.
@@ -66,9 +75,11 @@ func (h *Handler) Handle(update tgbotapi.Update) {
 	}
 
 	switch {
-	case strings.HasPrefix(text, "/habit"):
-		h.handleHabit(msg, strings.TrimPrefix(text, "/habit"))
-	case text == "/help":
+	case strings.HasPrefix(text, cmdHabit):
+		h.handleHabit(msg, strings.TrimPrefix(text, cmdHabit))
+	case text == cmdSync:
+		h.handleSync(msg)
+	case text == cmdHelp:
 		h.reply(msg, helpText)
 	case strings.Split(text, "")[0] == "/":
 		h.reply(msg, warnText)
@@ -139,6 +150,69 @@ func (h *Handler) handleHabit(msg *tgbotapi.Message, args string) {
 	}
 
 	h.reply(msg, fmt.Sprintf("Logged: %s", input.Habit))
+}
+
+func (h *Handler) handleSync(msg *tgbotapi.Message) {
+	run := func(args ...string) (string, error) {
+		cmd := exec.Command("git", append([]string{"-C", h.syncRoot}, args...)...)
+		out, err := cmd.CombinedOutput()
+		return strings.TrimSpace(string(out)), err
+	}
+
+	stashOut, _ := run("stash")
+	stashed := !strings.Contains(stashOut, "No local changes to stash")
+
+	if _, err := run("fetch", "origin"); err != nil {
+		log.Printf("sync git fetch error: %v", err)
+		if stashed {
+			run("stash", "pop")
+		}
+		h.reply(msg, "Sync failed: git fetch error.")
+		return
+	}
+
+	if rebaseOut, err := run("rebase", "origin/main"); err != nil {
+		log.Printf("sync git rebase error: %v — %s", err, rebaseOut)
+		run("rebase", "--abort")
+		if stashed {
+			run("stash", "pop")
+		}
+		h.reply(msg, "Sync failed: rebase conflict, aborted. Resolve manually.")
+		return
+	}
+
+	if stashed {
+		if popOut, err := run("stash", "pop"); err != nil {
+			log.Printf("sync git stash pop error: %v — %s", err, popOut)
+			h.reply(msg, "Sync failed: stash pop conflict. Resolve manually.")
+			return
+		}
+	}
+
+	if _, err := run("add", "."); err != nil {
+		log.Printf("sync git add error: %v", err)
+		h.reply(msg, "Sync failed: git add error.")
+		return
+	}
+
+	commitOut, err := run("commit", "-m", "Sync from telegram")
+	if err != nil {
+		if strings.Contains(commitOut, "nothing to commit") {
+			h.reply(msg, "Nothing to commit.")
+			return
+		}
+		log.Printf("sync git commit error: %v — %s", err, commitOut)
+		h.reply(msg, "Sync failed: git commit error.")
+		return
+	}
+
+	if _, err := run("push", "origin", "main"); err != nil {
+		log.Printf("sync git push error: %v", err)
+		h.reply(msg, "Sync failed: git push error.")
+		return
+	}
+
+	h.reply(msg, "Synced to GitHub.")
 }
 
 func (h *Handler) reply(msg *tgbotapi.Message, text string) {

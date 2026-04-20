@@ -66,6 +66,11 @@ func main() {
 		log.Fatal("HABITS_ROOT is required")
 	}
 
+	syncRoot := os.Getenv("SYNC_ROOT")
+	if syncRoot == "" {
+		log.Fatal("SYNC_ROOT is required")
+	}
+
 	whitelistTelegramIDMap := make(map[int64]bool)
 	whitelistTelegramIDStr := os.Getenv("WHITELIST_TELEGRAM_ID")
 	if whitelistTelegramIDStr != "" {
@@ -81,7 +86,7 @@ func main() {
 		log.Fatalf("create habits root: %v", err)
 	}
 
-	log.Printf("config habits_root=%s whitelist_telegram_id=%s", habitsRoot, whitelistTelegramIDStr)
+	log.Printf("config habits_root=%s sync_root=%s whitelist_telegram_id=%s", habitsRoot, syncRoot, whitelistTelegramIDStr)
 
 	bot, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
@@ -96,7 +101,7 @@ func main() {
 	}
 	log.Printf("allowed for %s\n", strings.Join(whitelistedTelegramIDs, ","))
 
-	h := handler.New(bot, habitsRoot, whitelistTelegramIDMap)
+	h := handler.New(bot, habitsRoot, syncRoot, whitelistTelegramIDMap)
 
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
