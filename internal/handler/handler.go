@@ -14,14 +14,14 @@ import (
 	"github.com/axonigma/gsnote/internal/writer"
 )
 
-const helpText = `Usage:
+const habitUsageText = `Usage:
   /habit <name> [value] [note]
   /habit list
 
   name  — single word (required)
   value — number, supports decimals (optional)
   note  — free text (optional)
-  
+
   list  — show all tracked habits (first 10 only)
 
 Examples:
@@ -30,9 +30,14 @@ Examples:
   /habit pushup 20
   /habit pushup 20 after dinner
   /habit run 2.5 morning jog
-  /habit list
+  /habit list`
 
-/help — show this message`
+const helpText = `Available commands:
+  /habit — log or list habits
+
+Tip: type a command alone to see its full usage.`
+
+const habitCmdList = "list"
 
 const warnText = `Command not found, use /help for guide`
 
@@ -111,7 +116,12 @@ func (h *Handler) handleHabitList(msg *tgbotapi.Message) {
 }
 
 func (h *Handler) handleHabit(msg *tgbotapi.Message, args string) {
-	if strings.TrimSpace(args) == "list" {
+	args = strings.TrimSpace(args)
+	if args == "" {
+		h.reply(msg, habitUsageText)
+		return
+	}
+	if args == habitCmdList {
 		h.handleHabitList(msg)
 		return
 	}
