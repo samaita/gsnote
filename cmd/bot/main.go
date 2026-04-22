@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/joho/godotenv"
@@ -75,6 +76,17 @@ func main() {
 	if tasksRoot == "" {
 		log.Fatal("TASKS_ROOT is required")
 	}
+
+	tz := os.Getenv("TIMEZONE")
+	if tz == "" {
+		tz = "Asia/Jakarta"
+	}
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		log.Fatalf("invalid TIMEZONE %q: %v", tz, err)
+	}
+	time.Local = loc
+	log.Printf("timezone=%s", tz)
 
 	whitelistTelegramIDMap := make(map[int64]bool)
 	whitelistTelegramIDStr := os.Getenv("WHITELIST_TELEGRAM_ID")
