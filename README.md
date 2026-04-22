@@ -91,13 +91,17 @@ Create `~/.config/gsnote/.env`:
 TELEGRAM_BOT_TOKEN=your_bot_token_here
 SYNC_ROOT=/home/youruser/vault
 HABITS_ROOT=/home/youruser/vault/Habits
+TASKS_ROOT=/home/youruser/vault/Tasks
 WHITELIST_TELEGRAM_ID=your_telegram_id
+TIMEZONE=Asia/Jakarta
 ```
 
 - `TELEGRAM_BOT_TOKEN` — obtain from [@BotFather](https://t.me/BotFather)
 - `SYNC_ROOT` — root of the git repository to sync (used by `/sync`)
 - `HABITS_ROOT` — subdirectory where habit markdown files will be written (created automatically)
+- `TASKS_ROOT` — subdirectory where task markdown files will be written (created automatically)
 - `WHITELIST_TELEGRAM_ID` — your numeric Telegram ID from [@userinfobot](https://t.me/userinfobot)
+- `TIMEZONE` — IANA timezone name used for timestamps (e.g. `Asia/Jakarta`, `UTC`, `America/New_York`)
 
 ### 3. Run
 
