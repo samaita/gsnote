@@ -12,6 +12,7 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
+	"github.com/axonigma/gsnote/internal/idea"
 	"github.com/axonigma/gsnote/internal/parser"
 	"github.com/axonigma/gsnote/internal/task"
 	"github.com/axonigma/gsnote/internal/writer"
@@ -97,9 +98,21 @@ Examples:
   /task delete 2
   /task delete 2026-04-21 2`
 
+const ideaUsageText = `Usage:
+  /idea <type> <title>
+
+  type  — one of: pain, insight, content (required)
+  title — free text describing the idea (required)
+
+Examples:
+  /idea pain address invalid bikin retry cost tinggi
+  /idea insight validator harus shift-left ke input
+  /idea content why failed delivery is preventable not operational`
+
 const helpText = `Available commands:
   /habit — log or list habits
   /task  — manage daily tasks
+  /idea  — capture an idea (pain, insight, or content)
   /sync  — git add, commit, and push to origin main
 
 Tip: type a command alone to see its full usage.`
@@ -107,6 +120,7 @@ Tip: type a command alone to see its full usage.`
 const (
 	cmdHabit = "/habit"
 	cmdTask  = "/task"
+	cmdIdea  = "/idea"
 	cmdSync  = "/sync"
 	cmdHelp  = "/help"
 )
@@ -128,15 +142,17 @@ type Handler struct {
 	bot                 *tgbotapi.BotAPI
 	habitsRoot          string
 	syncRoot            string
+	ideasRoot           string
 	taskMgr             *task.Manager
 	whitelistTelegramID map[int64]bool
 }
 
-func New(bot *tgbotapi.BotAPI, habitsRoot, syncRoot, tasksRoot string, whitelistTelegramID map[int64]bool) *Handler {
+func New(bot *tgbotapi.BotAPI, habitsRoot, syncRoot, tasksRoot, ideasRoot string, whitelistTelegramID map[int64]bool) *Handler {
 	return &Handler{
 		bot:                 bot,
 		habitsRoot:          habitsRoot,
 		syncRoot:            syncRoot,
+		ideasRoot:           ideasRoot,
 		taskMgr:             task.New(tasksRoot),
 		whitelistTelegramID: whitelistTelegramID,
 	}
@@ -160,6 +176,8 @@ func (h *Handler) Handle(update tgbotapi.Update) {
 		h.handleHabit(msg, strings.TrimPrefix(text, cmdHabit))
 	case strings.HasPrefix(text, cmdTask):
 		h.handleTask(msg, strings.TrimPrefix(text, cmdTask))
+	case strings.HasPrefix(text, cmdIdea):
+		h.handleIdea(msg, strings.TrimPrefix(text, cmdIdea))
 	case text == cmdSync:
 		h.handleSync(msg)
 	case text == cmdHelp:
@@ -233,6 +251,28 @@ func (h *Handler) handleHabit(msg *tgbotapi.Message, args string) {
 	}
 
 	h.reply(msg, fmt.Sprintf("Logged: %s", input.Habit))
+}
+
+func (h *Handler) handleIdea(msg *tgbotapi.Message, args string) {
+	args = strings.TrimSpace(args)
+	if args == "" {
+		h.reply(msg, ideaUsageText)
+		return
+	}
+
+	input, err := idea.Parse(args)
+	if err != nil {
+		h.reply(msg, "Please re-enter with the correct format. Use /help.")
+		return
+	}
+
+	if err := idea.Write(h.ideasRoot, input, time.Now()); err != nil {
+		log.Printf("write error for idea %q: %v", input.Title, err)
+		h.reply(msg, "Try again with the correct command. Use /help.")
+		return
+	}
+
+	h.reply(msg, fmt.Sprintf("Idea captured: %s", input.Title))
 }
 
 func (h *Handler) handleSync(msg *tgbotapi.Message) {
