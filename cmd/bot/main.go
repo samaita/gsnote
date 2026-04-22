@@ -82,6 +82,11 @@ func main() {
 		log.Fatal("IDEAS_ROOT is required")
 	}
 
+	notesRoot := os.Getenv("NOTES_ROOT")
+	if notesRoot == "" {
+		log.Fatal("NOTES_ROOT is required")
+	}
+
 	tz := os.Getenv("TIMEZONE")
 	if tz == "" {
 		tz = "Asia/Jakarta"
@@ -116,7 +121,11 @@ func main() {
 		log.Fatalf("create ideas root: %v", err)
 	}
 
-	log.Printf("config habits_root=%s sync_root=%s tasks_root=%s ideas_root=%s whitelist_telegram_id=%s", habitsRoot, syncRoot, tasksRoot, ideasRoot, whitelistTelegramIDStr)
+	if err := os.MkdirAll(notesRoot, 0755); err != nil {
+		log.Fatalf("create notes root: %v", err)
+	}
+
+	log.Printf("config habits_root=%s sync_root=%s tasks_root=%s ideas_root=%s notes_root=%s whitelist_telegram_id=%s", habitsRoot, syncRoot, tasksRoot, ideasRoot, notesRoot, whitelistTelegramIDStr)
 
 	bot, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
@@ -131,7 +140,7 @@ func main() {
 	}
 	log.Printf("allowed for %s\n", strings.Join(whitelistedTelegramIDs, ","))
 
-	h := handler.New(bot, habitsRoot, syncRoot, tasksRoot, ideasRoot, whitelistTelegramIDMap)
+	h := handler.New(bot, habitsRoot, syncRoot, tasksRoot, ideasRoot, notesRoot, whitelistTelegramIDMap)
 
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60

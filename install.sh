@@ -17,12 +17,15 @@ if [ ! -f "$CONFIG_FILE" ]; then
     HABITS_ROOT="${HABITS_ROOT_INPUT:-$SYNC_ROOT/Habits}"
     read -rp "Tasks folder [$SYNC_ROOT/Tasks]: " TASKS_ROOT_INPUT </dev/tty
     TASKS_ROOT="${TASKS_ROOT_INPUT:-$SYNC_ROOT/Tasks}"
+    read -rp "Notes folder [$SYNC_ROOT/Notes]: " NOTES_ROOT_INPUT </dev/tty
+    NOTES_ROOT="${NOTES_ROOT_INPUT:-$SYNC_ROOT/Notes}"
     read -rp "Whitelist Telegram ID (from @userinfobot): " WHITELIST_ID </dev/tty
     read -rp "Timezone [Asia/Jakarta]: " TIMEZONE_INPUT </dev/tty
     TIMEZONE="${TIMEZONE_INPUT:-Asia/Jakarta}"
 
     mkdir -p "$HABITS_ROOT"
     mkdir -p "$TASKS_ROOT"
+    mkdir -p "$NOTES_ROOT"
 
     quote() { local v="$1"; [[ "$v" == \"*\" ]] && echo "$v" || echo "\"$v\""; }
 
@@ -31,6 +34,8 @@ TELEGRAM_BOT_TOKEN=$(quote "$BOT_TOKEN")
 SYNC_ROOT=$(quote "$SYNC_ROOT")
 HABITS_ROOT=$(quote "$HABITS_ROOT")
 TASKS_ROOT=$(quote "$TASKS_ROOT")
+IDEAS_ROOT=$(quote "$SYNC_ROOT/Ideas")
+NOTES_ROOT=$(quote "$NOTES_ROOT")
 WHITELIST_TELEGRAM_ID=$(quote "$WHITELIST_ID")
 TIMEZONE=$(quote "$TIMEZONE")
 EOF
@@ -39,6 +44,7 @@ EOF
     echo "Sync (vault) folder: $SYNC_ROOT"
     echo "Habits folder:       $HABITS_ROOT"
     echo "Tasks folder:        $TASKS_ROOT"
+    echo "Notes folder:        $NOTES_ROOT"
     echo "Timezone:            $TIMEZONE"
     echo ""
     echo "You can reconfigure anytime by editing: $CONFIG_FILE"

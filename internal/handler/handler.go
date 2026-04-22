@@ -13,6 +13,7 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
 	"github.com/axonigma/gsnote/internal/idea"
+	"github.com/axonigma/gsnote/internal/note"
 	"github.com/axonigma/gsnote/internal/parser"
 	"github.com/axonigma/gsnote/internal/task"
 	"github.com/axonigma/gsnote/internal/writer"
@@ -109,10 +110,20 @@ Examples:
   /idea insight validator harus shift-left ke input
   /idea content why failed delivery is preventable not operational`
 
+const noteUsageText = `Usage:
+  /note <link> <desc>
+
+  link — URL of the resource (required)
+  desc — short description (required)
+
+Examples:
+  /note https://www.google.com a search engine made by Google`
+
 const helpText = `Available commands:
   /habit — log or list habits
   /task  — manage daily tasks
   /idea  — capture an idea (pain, insight, or content)
+  /note  — save a link with your take
   /sync  — git add, commit, and push to origin main
 
 Tip: type a command alone to see its full usage.`
@@ -121,6 +132,7 @@ const (
 	cmdHabit = "/habit"
 	cmdTask  = "/task"
 	cmdIdea  = "/idea"
+	cmdNote  = "/note"
 	cmdSync  = "/sync"
 	cmdHelp  = "/help"
 )
@@ -143,18 +155,22 @@ type Handler struct {
 	habitsRoot          string
 	syncRoot            string
 	ideasRoot           string
+	notesRoot           string
 	taskMgr             *task.Manager
 	whitelistTelegramID map[int64]bool
+	pendingNotes        map[int64]string // userID → note file path awaiting "My Take"
 }
 
-func New(bot *tgbotapi.BotAPI, habitsRoot, syncRoot, tasksRoot, ideasRoot string, whitelistTelegramID map[int64]bool) *Handler {
+func New(bot *tgbotapi.BotAPI, habitsRoot, syncRoot, tasksRoot, ideasRoot, notesRoot string, whitelistTelegramID map[int64]bool) *Handler {
 	return &Handler{
 		bot:                 bot,
 		habitsRoot:          habitsRoot,
 		syncRoot:            syncRoot,
 		ideasRoot:           ideasRoot,
+		notesRoot:           notesRoot,
 		taskMgr:             task.New(tasksRoot),
 		whitelistTelegramID: whitelistTelegramID,
+		pendingNotes:        make(map[int64]string),
 	}
 }
 
@@ -171,6 +187,19 @@ func (h *Handler) Handle(update tgbotapi.Update) {
 		return
 	}
 
+	if !strings.HasPrefix(text, "/") {
+		if filePath, ok := h.pendingNotes[msg.From.ID]; ok {
+			delete(h.pendingNotes, msg.From.ID)
+			if err := note.FillMyTake(filePath, text); err != nil {
+				log.Printf("fill my take error: %v", err)
+				h.reply(msg, "Failed to save your take.")
+				return
+			}
+			h.reply(msg, "Note saved!")
+			return
+		}
+	}
+
 	switch {
 	case strings.HasPrefix(text, cmdHabit):
 		h.handleHabit(msg, strings.TrimPrefix(text, cmdHabit))
@@ -178,6 +207,8 @@ func (h *Handler) Handle(update tgbotapi.Update) {
 		h.handleTask(msg, strings.TrimPrefix(text, cmdTask))
 	case strings.HasPrefix(text, cmdIdea):
 		h.handleIdea(msg, strings.TrimPrefix(text, cmdIdea))
+	case strings.HasPrefix(text, cmdNote):
+		h.handleNote(msg, strings.TrimPrefix(text, cmdNote))
 	case text == cmdSync:
 		h.handleSync(msg)
 	case text == cmdHelp:
@@ -273,6 +304,30 @@ func (h *Handler) handleIdea(msg *tgbotapi.Message, args string) {
 	}
 
 	h.reply(msg, fmt.Sprintf("Idea captured: %s", input.Title))
+}
+
+func (h *Handler) handleNote(msg *tgbotapi.Message, args string) {
+	args = strings.TrimSpace(args)
+	if args == "" {
+		h.reply(msg, noteUsageText)
+		return
+	}
+
+	input, err := note.Parse(args)
+	if err != nil {
+		h.reply(msg, "Please re-enter with the correct format. Use /help.")
+		return
+	}
+
+	filePath, err := note.Write(h.notesRoot, input, time.Now())
+	if err != nil {
+		log.Printf("write error for note %q: %v", input.Desc, err)
+		h.reply(msg, "Try again with the correct command. Use /help.")
+		return
+	}
+
+	h.pendingNotes[msg.From.ID] = filePath
+	h.reply(msg, "What is your take?")
 }
 
 func (h *Handler) handleSync(msg *tgbotapi.Message) {
