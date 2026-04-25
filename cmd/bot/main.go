@@ -87,6 +87,10 @@ func main() {
 		log.Fatal("NOTES_ROOT is required")
 	}
 
+	githubToken := os.Getenv("GSNOTE_GITHUB_TOKEN")
+	gitAuthorName := os.Getenv("GSNOTE_GIT_AUTHOR_NAME")
+	gitAuthorEmail := os.Getenv("GSNOTE_GIT_AUTHOR_EMAIL")
+
 	tz := os.Getenv("TIMEZONE")
 	if tz == "" {
 		tz = "Asia/Jakarta"
@@ -140,7 +144,7 @@ func main() {
 	}
 	log.Printf("allowed for %s\n", strings.Join(whitelistedTelegramIDs, ","))
 
-	h := handler.New(bot, habitsRoot, syncRoot, tasksRoot, ideasRoot, notesRoot, whitelistTelegramIDMap)
+	h := handler.New(bot, habitsRoot, syncRoot, tasksRoot, ideasRoot, notesRoot, githubToken, gitAuthorName, gitAuthorEmail, whitelistTelegramIDMap)
 
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60

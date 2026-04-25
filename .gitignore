@@ -9,3 +9,4 @@ gsnote
 .env
 # Added by goreleaser init:
 dist/
+.codex

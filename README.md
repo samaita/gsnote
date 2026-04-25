@@ -89,6 +89,9 @@ Create `~/.config/gsnote/.env`:
 
 ```env
 TELEGRAM_BOT_TOKEN=your_bot_token_here
+GSNOTE_GITHUB_TOKEN=your_github_token_here
+GSNOTE_GIT_AUTHOR_NAME=your_name
+GSNOTE_GIT_AUTHOR_EMAIL=your_email@example.com
 SYNC_ROOT=/home/youruser/vault
 HABITS_ROOT=/home/youruser/vault/Habits
 TASKS_ROOT=/home/youruser/vault/Tasks
@@ -97,6 +100,9 @@ TIMEZONE=Asia/Jakarta
 ```
 
 - `TELEGRAM_BOT_TOKEN` — obtain from [@BotFather](https://t.me/BotFather)
+- `GSNOTE_GITHUB_TOKEN` — GitHub personal access token used by `/sync` for HTTPS remotes
+- `GSNOTE_GIT_AUTHOR_NAME` — commit author name used by `/sync`
+- `GSNOTE_GIT_AUTHOR_EMAIL` — commit author email used by `/sync`
 - `SYNC_ROOT` — root of the git repository to sync (used by `/sync`)
 - `HABITS_ROOT` — subdirectory where habit markdown files will be written (created automatically)
 - `TASKS_ROOT` — subdirectory where task markdown files will be written (created automatically)
@@ -124,7 +130,7 @@ journalctl --user -u gsnote -f
 | Command | Description |
 |---------|-------------|
 | `/habit <name> [value] [note]` | Log a habit entry |
-| `/sync` | Git add, commit, and push `SYNC_ROOT` to origin main |
+| `/sync` | Sync `SYNC_ROOT` to origin main using embedded go-git flow |
 | `/help` | Show usage |
 
 ## Requirements

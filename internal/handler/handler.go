@@ -1,10 +1,10 @@
 package handler
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -15,6 +15,7 @@ import (
 	"github.com/axonigma/gsnote/internal/idea"
 	"github.com/axonigma/gsnote/internal/note"
 	"github.com/axonigma/gsnote/internal/parser"
+	"github.com/axonigma/gsnote/internal/syncgit"
 	"github.com/axonigma/gsnote/internal/task"
 	"github.com/axonigma/gsnote/internal/writer"
 )
@@ -156,18 +157,20 @@ type Handler struct {
 	syncRoot            string
 	ideasRoot           string
 	notesRoot           string
+	syncer              *syncgit.Service
 	taskMgr             *task.Manager
 	whitelistTelegramID map[int64]bool
 	pendingNotes        map[int64]string // userID → note file path awaiting "My Take"
 }
 
-func New(bot *tgbotapi.BotAPI, habitsRoot, syncRoot, tasksRoot, ideasRoot, notesRoot string, whitelistTelegramID map[int64]bool) *Handler {
+func New(bot *tgbotapi.BotAPI, habitsRoot, syncRoot, tasksRoot, ideasRoot, notesRoot, githubToken, gitAuthorName, gitAuthorEmail string, whitelistTelegramID map[int64]bool) *Handler {
 	return &Handler{
 		bot:                 bot,
 		habitsRoot:          habitsRoot,
 		syncRoot:            syncRoot,
 		ideasRoot:           ideasRoot,
 		notesRoot:           notesRoot,
+		syncer:              syncgit.New(syncRoot, githubToken, gitAuthorName, gitAuthorEmail),
 		taskMgr:             task.New(tasksRoot),
 		whitelistTelegramID: whitelistTelegramID,
 		pendingNotes:        make(map[int64]string),
@@ -331,62 +334,36 @@ func (h *Handler) handleNote(msg *tgbotapi.Message, args string) {
 }
 
 func (h *Handler) handleSync(msg *tgbotapi.Message) {
-	run := func(args ...string) (string, error) {
-		cmd := exec.Command("git", append([]string{"-C", h.syncRoot}, args...)...)
-		out, err := cmd.CombinedOutput()
-		return strings.TrimSpace(string(out)), err
-	}
-
-	stashOut, _ := run("stash")
-	stashed := !strings.Contains(stashOut, "No local changes to stash")
-
-	if _, err := run("fetch", "origin"); err != nil {
-		log.Printf("sync git fetch error: %v", err)
-		if stashed {
-			run("stash", "pop")
-		}
-		h.reply(msg, "Sync failed: git fetch error.")
-		return
-	}
-
-	if rebaseOut, err := run("rebase", "origin/main"); err != nil {
-		log.Printf("sync git rebase error: %v — %s", err, rebaseOut)
-		run("rebase", "--abort")
-		if stashed {
-			run("stash", "pop")
-		}
-		h.reply(msg, "Sync failed: rebase conflict, aborted. Resolve manually.")
-		return
-	}
-
-	if stashed {
-		if popOut, err := run("stash", "pop"); err != nil {
-			log.Printf("sync git stash pop error: %v — %s", err, popOut)
-			h.reply(msg, "Sync failed: stash pop conflict. Resolve manually.")
-			return
-		}
-	}
-
-	if _, err := run("add", "."); err != nil {
-		log.Printf("sync git add error: %v", err)
-		h.reply(msg, "Sync failed: git add error.")
-		return
-	}
-
-	commitOut, err := run("commit", "-m", "Sync from telegram")
+	outcome, err := h.syncer.Sync()
 	if err != nil {
-		if strings.Contains(commitOut, "nothing to commit") {
-			h.reply(msg, "Nothing to commit.")
-			return
+		switch {
+		case errors.Is(err, syncgit.ErrFetch):
+			log.Printf("sync fetch error: %v", err)
+			h.reply(msg, "Sync failed: git fetch error.")
+		case errors.Is(err, syncgit.ErrRebaseConflict):
+			log.Printf("sync rebase conflict: %v", err)
+			h.reply(msg, "Sync failed: rebase conflict, aborted. Resolve manually.")
+		case errors.Is(err, syncgit.ErrStashConflict):
+			log.Printf("sync stash restore conflict: %v", err)
+			h.reply(msg, "Sync failed: stash pop conflict. Resolve manually.")
+		case errors.Is(err, syncgit.ErrAdd):
+			log.Printf("sync add error: %v", err)
+			h.reply(msg, "Sync failed: git add error.")
+		case errors.Is(err, syncgit.ErrCommit):
+			log.Printf("sync commit error: %v", err)
+			h.reply(msg, "Sync failed: git commit error.")
+		case errors.Is(err, syncgit.ErrPush):
+			log.Printf("sync push error: %v", err)
+			h.reply(msg, "Sync failed: git push error.")
+		default:
+			log.Printf("sync unexpected error: %v", err)
+			h.reply(msg, "Sync failed: git fetch error.")
 		}
-		log.Printf("sync git commit error: %v — %s", err, commitOut)
-		h.reply(msg, "Sync failed: git commit error.")
 		return
 	}
 
-	if _, err := run("push", "origin", "main"); err != nil {
-		log.Printf("sync git push error: %v", err)
-		h.reply(msg, "Sync failed: git push error.")
+	if outcome == syncgit.OutcomeNothingToCommit {
+		h.reply(msg, "Nothing to commit.")
 		return
 	}
 

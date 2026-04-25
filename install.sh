@@ -11,6 +11,9 @@ mkdir -p "$BINARY_DIR"
 
 if [ ! -f "$CONFIG_FILE" ]; then
     read -rp "Telegram bot token: " BOT_TOKEN </dev/tty
+    read -rp "GitHub token for /sync HTTPS remote [optional]: " GITHUB_TOKEN </dev/tty
+    read -rp "Git author name for /sync commits: " GIT_AUTHOR_NAME </dev/tty
+    read -rp "Git author email for /sync commits: " GIT_AUTHOR_EMAIL </dev/tty
     read -rp "Vault (sync) folder [$HOME/vault]: " SYNC_ROOT_INPUT </dev/tty
     SYNC_ROOT="${SYNC_ROOT_INPUT:-$HOME/vault}"
     read -rp "Habits folder [$SYNC_ROOT/Habits]: " HABITS_ROOT_INPUT </dev/tty
@@ -31,6 +34,9 @@ if [ ! -f "$CONFIG_FILE" ]; then
 
     cat > "$CONFIG_FILE" <<EOF
 TELEGRAM_BOT_TOKEN=$(quote "$BOT_TOKEN")
+GSNOTE_GITHUB_TOKEN=$(quote "$GITHUB_TOKEN")
+GSNOTE_GIT_AUTHOR_NAME=$(quote "$GIT_AUTHOR_NAME")
+GSNOTE_GIT_AUTHOR_EMAIL=$(quote "$GIT_AUTHOR_EMAIL")
 SYNC_ROOT=$(quote "$SYNC_ROOT")
 HABITS_ROOT=$(quote "$HABITS_ROOT")
 TASKS_ROOT=$(quote "$TASKS_ROOT")
