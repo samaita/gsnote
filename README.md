@@ -1,12 +1,16 @@
 # gsnote
 
-A low-friction habit logging bot for Telegram. Logs entries as append-only markdown files compatible with Obsidian.
+A low-friction Telegram bot for capturing habits, tasks, ideas, and notes in markdown files compatible with Obsidian.
 
 ## How it works
 
-Send a command to your Telegram bot — the entry is appended to a markdown file under your configured habits directory.
+Send commands to your Telegram bot to log habits, manage tasks, capture ideas, save notes, and sync your vault.
 
-```
+Run `/help` in Telegram to see the latest supported commands and usage. The command list changes over time, so the bot's built-in help is the source of truth.
+
+One example command is:
+
+```text
 /habit <name> [value] [note]
 ```
 
@@ -127,9 +131,14 @@ journalctl --user -u gsnote -f
 
 ## Bot commands
 
+Run `/help` in Telegram for the current command list and usage details.
+
 | Command | Description |
 |---------|-------------|
 | `/habit <name> [value] [note]` | Log a habit entry |
+| `/task ...` | Manage daily tasks |
+| `/idea <type> <title>` | Capture an idea |
+| `/note <link> <desc>` | Save a link with your take |
 | `/sync` | Sync `SYNC_ROOT` to origin main using embedded go-git flow |
 | `/help` | Show usage |
 
@@ -137,3 +146,6 @@ journalctl --user -u gsnote -f
 
 - Go 1.21+
 - A Telegram bot token
+- GitHub credentials for `/sync`:
+- `GSNOTE_GITHUB_TOKEN` with access to the remote repository
+- Git author identity via `GSNOTE_GIT_AUTHOR_NAME` and `GSNOTE_GIT_AUTHOR_EMAIL`
