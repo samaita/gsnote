@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -100,6 +101,63 @@ func (m *Manager) View(date string) (string, error) {
 		status := line[taskStatusStart:taskStatusEnd]
 		text := line[taskTextOffset:]
 		sb.WriteString(fmt.Sprintf("%d. %s %s\n", i+1, status, text))
+	}
+
+	return strings.TrimRight(sb.String(), "\n"), nil
+}
+
+func (m *Manager) ViewMonth(month string) (string, error) {
+	entries, err := os.ReadDir(m.tasksRoot)
+	if err != nil {
+		return "", err
+	}
+
+	var dates []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if filepath.Ext(name) != taskFileExt {
+			continue
+		}
+
+		date := strings.TrimSuffix(name, taskFileExt)
+		if !strings.HasPrefix(date, month+"-") {
+			continue
+		}
+		dates = append(dates, date)
+	}
+
+	sort.Strings(dates)
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Tasks %s:\n", month))
+
+	count := 0
+	for _, date := range dates {
+		lines, err := readLines(m.filePath(date))
+		if err != nil {
+			return "", err
+		}
+
+		indices := taskIndices(lines)
+		if len(indices) == 0 {
+			continue
+		}
+
+		count++
+		sb.WriteString(fmt.Sprintf("%s:\n", date))
+		for i, idx := range indices {
+			line := lines[idx]
+			status := line[taskStatusStart:taskStatusEnd]
+			text := line[taskTextOffset:]
+			sb.WriteString(fmt.Sprintf("%d. %s %s\n", i+1, status, text))
+		}
+	}
+
+	if count == 0 {
+		return fmt.Sprintf("No tasks for %s.", month), nil
 	}
 
 	return strings.TrimRight(sb.String(), "\n"), nil

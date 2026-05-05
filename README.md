@@ -140,7 +140,7 @@ Run `/help` in Telegram for the current command list and usage details.
 | Command | Description |
 |---------|-------------|
 | `/habit <name> [value] [note]` | Log a habit entry |
-| `/task ...` | Manage daily tasks |
+| `/task ...` | Manage tasks |
 | `/idea <type> <title>` | Capture an idea |
 | `/note <link> <desc>` | Save a link with your take |
 | `/cron ...` | Schedule `/task view` or `/sync` |
@@ -153,6 +153,14 @@ Run `/help` in Telegram for the current command list and usage details.
 
 - `/task view`
 - `/sync`
+
+### Task view
+
+`/task view` supports:
+
+- `/task view` to show this month's tasks followed by today's tasks
+- `/task view YYYY-MM` to show tasks for a month
+- `/task view YYYY-MM-DD` to show tasks for a specific day
 
 Accepted schedule formats:
 

@@ -42,7 +42,7 @@ Examples:
 
 const taskHelpText = `Available task commands:
   /task new     — add a task
-  /task view    — view tasks
+  /task view    — view today and this month tasks
   /task done    — mark a task complete
   /task edit    — edit a task
   /task delete  — delete a task`
@@ -60,12 +60,16 @@ Examples:
 
 const taskViewUsageText = `Usage:
   /task view
+  /task view YYYY-MM
   /task view YYYY-MM-DD
 
-  YYYY-MM-DD — date to view (default: today)
+  /task view         — show this month and today
+  YYYY-MM            — month to view
+  YYYY-MM-DD         — date to view
 
 Examples:
   /task view
+  /task view 2026-04
   /task view 2026-04-21`
 
 const taskDoneUsageText = `Usage:
@@ -141,7 +145,7 @@ Examples:
 
 const helpText = `Available commands:
   /habit — log or list habits
-  /task  — manage daily tasks
+  /task  — manage tasks
   /idea  — capture an idea (pain, insight, or content)
   /note  — save a link with your take
   /cron  — schedule /task view or /sync
@@ -397,11 +401,23 @@ func (h *Handler) handleTask(msg *tgbotapi.Message, args string) {
 		h.reply(msg, fmt.Sprintf("Task added for %s.", date))
 
 	case taskCmdView:
-		date := today
-		if len(rest) > 0 && isDateArg(rest[0]) {
-			date = rest[0]
+		out, err := h.executeDefaultTaskView(today)
+		if len(rest) > 1 {
+			h.reply(msg, taskViewUsageText)
+			return
 		}
-		out, err := h.executeTaskView(date)
+
+		if len(rest) == 1 {
+			switch {
+			case isMonthArg(rest[0]):
+				out, err = h.executeTaskMonthView(rest[0])
+			case isDateArg(rest[0]):
+				out, err = h.executeTaskView(rest[0])
+			default:
+				h.reply(msg, taskViewUsageText)
+				return
+			}
+		}
 		if err != nil {
 			log.Printf("task view error: %v", err)
 			h.reply(msg, "Failed to view tasks.")
@@ -596,7 +612,8 @@ func (h *Handler) StartCronScheduler() {
 func (h *Handler) executeScheduledCommand(cmd string) (string, error) {
 	switch cmd {
 	case "/task view":
-		return h.executeTaskView(time.Now().In(time.Local).Format("2006-01-02"))
+		now := time.Now().In(time.Local)
+		return h.executeDefaultTaskView(now.Format("2006-01-02"))
 	case "/sync":
 		return h.executeSync()
 	default:
@@ -606,6 +623,25 @@ func (h *Handler) executeScheduledCommand(cmd string) (string, error) {
 
 func (h *Handler) executeTaskView(date string) (string, error) {
 	return h.taskMgr.View(date)
+}
+
+func (h *Handler) executeTaskMonthView(month string) (string, error) {
+	return h.taskMgr.ViewMonth(month)
+}
+
+func (h *Handler) executeDefaultTaskView(today string) (string, error) {
+	month := today[:7]
+	monthly, err := h.executeTaskMonthView(month)
+	if err != nil {
+		return "", err
+	}
+
+	daily, err := h.executeTaskView(today)
+	if err != nil {
+		return "", err
+	}
+
+	return monthly + "\n\n" + daily, nil
 }
 
 func (h *Handler) executeSync() (string, error) {
@@ -698,6 +734,14 @@ func isDateArg(s string) bool {
 		return false
 	}
 	_, err := time.Parse("2006-01-02", s)
+	return err == nil
+}
+
+func isMonthArg(s string) bool {
+	if len(s) != 7 {
+		return false
+	}
+	_, err := time.Parse("2006-01", s)
 	return err == nil
 }
 
