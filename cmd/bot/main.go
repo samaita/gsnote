@@ -87,6 +87,11 @@ func main() {
 		log.Fatal("NOTES_ROOT is required")
 	}
 
+	cronRoot := os.Getenv("CRON_ROOT")
+	if cronRoot == "" {
+		cronRoot = filepath.Join(syncRoot, "CRON")
+	}
+
 	githubToken := os.Getenv("GSNOTE_GITHUB_TOKEN")
 	gitAuthorName := os.Getenv("GSNOTE_GIT_AUTHOR_NAME")
 	gitAuthorEmail := os.Getenv("GSNOTE_GIT_AUTHOR_EMAIL")
@@ -129,7 +134,11 @@ func main() {
 		log.Fatalf("create notes root: %v", err)
 	}
 
-	log.Printf("config habits_root=%s sync_root=%s tasks_root=%s ideas_root=%s notes_root=%s whitelist_telegram_id=%s", habitsRoot, syncRoot, tasksRoot, ideasRoot, notesRoot, whitelistTelegramIDStr)
+	if err := os.MkdirAll(cronRoot, 0755); err != nil {
+		log.Fatalf("create cron root: %v", err)
+	}
+
+	log.Printf("config habits_root=%s sync_root=%s tasks_root=%s ideas_root=%s notes_root=%s cron_root=%s whitelist_telegram_id=%s", habitsRoot, syncRoot, tasksRoot, ideasRoot, notesRoot, cronRoot, whitelistTelegramIDStr)
 
 	bot, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
@@ -144,7 +153,8 @@ func main() {
 	}
 	log.Printf("allowed for %s\n", strings.Join(whitelistedTelegramIDs, ","))
 
-	h := handler.New(bot, habitsRoot, syncRoot, tasksRoot, ideasRoot, notesRoot, githubToken, gitAuthorName, gitAuthorEmail, whitelistTelegramIDMap)
+	h := handler.New(bot, habitsRoot, syncRoot, tasksRoot, ideasRoot, notesRoot, cronRoot, githubToken, gitAuthorName, gitAuthorEmail, whitelistTelegramIDMap)
+	h.StartCronScheduler()
 
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60

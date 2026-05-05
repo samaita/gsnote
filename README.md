@@ -4,7 +4,7 @@ A low-friction Telegram bot for capturing habits, tasks, ideas, and notes in mar
 
 ## How it works
 
-Send commands to your Telegram bot to log habits, manage tasks, capture ideas, save notes, and sync your vault.
+Send commands to your Telegram bot to log habits, manage tasks, capture ideas, save notes, sync your vault, and schedule supported commands.
 
 Run `/help` in Telegram to see the latest supported commands and usage. The command list changes over time, so the bot's built-in help is the source of truth.
 
@@ -99,6 +99,8 @@ GSNOTE_GIT_AUTHOR_EMAIL=your_email@example.com
 SYNC_ROOT=/home/youruser/vault
 HABITS_ROOT=/home/youruser/vault/Habits
 TASKS_ROOT=/home/youruser/vault/Tasks
+NOTES_ROOT=/home/youruser/vault/Notes
+CRON_ROOT=/home/youruser/vault/CRON
 WHITELIST_TELEGRAM_ID=your_telegram_id
 TIMEZONE=Asia/Jakarta
 ```
@@ -110,6 +112,8 @@ TIMEZONE=Asia/Jakarta
 - `SYNC_ROOT` — root of the git repository to sync (used by `/sync`)
 - `HABITS_ROOT` — subdirectory where habit markdown files will be written (created automatically)
 - `TASKS_ROOT` — subdirectory where task markdown files will be written (created automatically)
+- `NOTES_ROOT` — subdirectory where note markdown files will be written (created automatically)
+- `CRON_ROOT` — directory where scheduled command definitions are stored
 - `WHITELIST_TELEGRAM_ID` — your numeric Telegram ID from [@userinfobot](https://t.me/userinfobot)
 - `TIMEZONE` — IANA timezone name used for timestamps (e.g. `Asia/Jakarta`, `UTC`, `America/New_York`)
 
@@ -139,8 +143,27 @@ Run `/help` in Telegram for the current command list and usage details.
 | `/task ...` | Manage daily tasks |
 | `/idea <type> <title>` | Capture an idea |
 | `/note <link> <desc>` | Save a link with your take |
+| `/cron ...` | Schedule `/task view` or `/sync` |
 | `/sync` | Sync `SYNC_ROOT` to origin main using embedded go-git flow |
 | `/help` | Show usage |
+
+### Cron schedules
+
+`/cron` currently supports:
+
+- `/task view`
+- `/sync`
+
+Accepted schedule formats:
+
+- `HH:MM` for a daily recurring run, for example `/cron 06:00 /task view`
+- 5-field cron syntax, for example `/cron */5 * * * * /sync`
+
+Manage entries with:
+
+- `/cron view`
+- `/cron edit N <spec> <command>`
+- `/cron delete N`
 
 ## Requirements
 
