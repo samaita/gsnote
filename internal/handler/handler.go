@@ -50,12 +50,15 @@ const taskHelpText = `Available task commands:
 const taskNewUsageText = `Usage:
   /task new <text>
   /task new YYYY-MM-DD <text>
+  /task new YYYY-MM <text>
 
   text       — task description (required)
   YYYY-MM-DD — schedule for a date (default: today)
+  YYYY-MM    — schedule for a month
 
 Examples:
   /task new Buy groceries
+  /task new 2026-04 Plan monthly review
   /task new 2026-04-21 Submit report`
 
 const taskViewUsageText = `Usage:
@@ -75,35 +78,44 @@ Examples:
 const taskDoneUsageText = `Usage:
   /task done N
   /task done YYYY-MM-DD N
+  /task done YYYY-MM N
 
   N          — task number shown in /task view
   YYYY-MM-DD — date of the task (default: today)
+  YYYY-MM    — month of the task
 
 Examples:
   /task done 2
+  /task done 2026-04 2
   /task done 2026-04-21 2`
 
 const taskEditUsageText = `Usage:
   /task edit N <text>
   /task edit YYYY-MM-DD N <text>
+  /task edit YYYY-MM N <text>
 
   N          — task number shown in /task view
   text       — replacement text
   YYYY-MM-DD — date of the task (default: today)
+  YYYY-MM    — month of the task
 
 Examples:
   /task edit 2 Buy more groceries
+  /task edit 2026-04 2 Update roadmap
   /task edit 2026-04-21 2 Submit final report`
 
 const taskDeleteUsageText = `Usage:
   /task delete N
   /task delete YYYY-MM-DD N
+  /task delete YYYY-MM N
 
   N          — task number shown in /task view
   YYYY-MM-DD — date of the task (default: today)
+  YYYY-MM    — month of the task
 
 Examples:
   /task delete 2
+  /task delete 2026-04 2
   /task delete 2026-04-21 2`
 
 const ideaUsageText = `Usage:
@@ -745,12 +757,12 @@ func isMonthArg(s string) bool {
 	return err == nil
 }
 
-// parseTaskNewArgs parses: [YYYY-MM-DD] <text...>
+// parseTaskNewArgs parses: [YYYY-MM-DD|YYYY-MM] <text...>
 func parseTaskNewArgs(parts []string, defaultDate string) (date, text string, ok bool) {
 	if len(parts) == 0 {
 		return "", "", false
 	}
-	if isDateArg(parts[0]) {
+	if isDateArg(parts[0]) || isMonthArg(parts[0]) {
 		if len(parts) < 2 {
 			return "", "", false
 		}
@@ -759,7 +771,7 @@ func parseTaskNewArgs(parts []string, defaultDate string) (date, text string, ok
 	return defaultDate, strings.Join(parts, " "), true
 }
 
-// parseTaskNArgs parses: [YYYY-MM-DD] N
+// parseTaskNArgs parses: [YYYY-MM-DD|YYYY-MM] N
 func parseTaskNArgs(parts []string, defaultDate string) (date string, n int, ok bool) {
 	switch len(parts) {
 	case 1:
@@ -769,7 +781,7 @@ func parseTaskNArgs(parts []string, defaultDate string) (date string, n int, ok 
 		}
 		return defaultDate, int(n64), true
 	case 2:
-		if !isDateArg(parts[0]) {
+		if !isDateArg(parts[0]) && !isMonthArg(parts[0]) {
 			return "", 0, false
 		}
 		n64, err := strconv.ParseInt(parts[1], 10, 64)
@@ -782,12 +794,12 @@ func parseTaskNArgs(parts []string, defaultDate string) (date string, n int, ok 
 	}
 }
 
-// parseTaskEditArgs parses: [YYYY-MM-DD] N <text...>
+// parseTaskEditArgs parses: [YYYY-MM-DD|YYYY-MM] N <text...>
 func parseTaskEditArgs(parts []string, defaultDate string) (date string, n int, text string, ok bool) {
 	if len(parts) < 2 {
 		return "", 0, "", false
 	}
-	if isDateArg(parts[0]) {
+	if isDateArg(parts[0]) || isMonthArg(parts[0]) {
 		if len(parts) < 3 {
 			return "", 0, "", false
 		}
