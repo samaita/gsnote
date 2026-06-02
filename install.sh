@@ -22,6 +22,8 @@ if [ ! -f "$CONFIG_FILE" ]; then
     TASKS_ROOT="${TASKS_ROOT_INPUT:-$SYNC_ROOT/Tasks}"
     read -rp "Notes folder [$SYNC_ROOT/Notes]: " NOTES_ROOT_INPUT </dev/tty
     NOTES_ROOT="${NOTES_ROOT_INPUT:-$SYNC_ROOT/Notes}"
+    read -rp "Journals folder [$SYNC_ROOT/Journals]: " JOURNALS_ROOT_INPUT </dev/tty
+    JOURNALS_ROOT="${JOURNALS_ROOT_INPUT:-$SYNC_ROOT/Journals}"
     read -rp "Cron folder [$SYNC_ROOT/CRON]: " CRON_ROOT_INPUT </dev/tty
     CRON_ROOT="${CRON_ROOT_INPUT:-$SYNC_ROOT/CRON}"
     read -rp "Whitelist Telegram ID (from @userinfobot): " WHITELIST_ID </dev/tty
@@ -30,7 +32,9 @@ if [ ! -f "$CONFIG_FILE" ]; then
 
     mkdir -p "$HABITS_ROOT"
     mkdir -p "$TASKS_ROOT"
+    mkdir -p "$SYNC_ROOT/Ideas"
     mkdir -p "$NOTES_ROOT"
+    mkdir -p "$JOURNALS_ROOT"
     mkdir -p "$CRON_ROOT"
 
     quote() { local v="$1"; [[ "$v" == \"*\" ]] && echo "$v" || echo "\"$v\""; }
@@ -45,6 +49,7 @@ HABITS_ROOT=$(quote "$HABITS_ROOT")
 TASKS_ROOT=$(quote "$TASKS_ROOT")
 IDEAS_ROOT=$(quote "$SYNC_ROOT/Ideas")
 NOTES_ROOT=$(quote "$NOTES_ROOT")
+JOURNALS_ROOT=$(quote "$JOURNALS_ROOT")
 CRON_ROOT=$(quote "$CRON_ROOT")
 WHITELIST_TELEGRAM_ID=$(quote "$WHITELIST_ID")
 TIMEZONE=$(quote "$TIMEZONE")
@@ -54,13 +59,23 @@ EOF
     echo "Sync (vault) folder: $SYNC_ROOT"
     echo "Habits folder:       $HABITS_ROOT"
     echo "Tasks folder:        $TASKS_ROOT"
+    echo "Ideas folder:        $SYNC_ROOT/Ideas"
     echo "Notes folder:        $NOTES_ROOT"
+    echo "Journals folder:     $JOURNALS_ROOT"
     echo "Cron folder:         $CRON_ROOT"
     echo "Timezone:            $TIMEZONE"
     echo ""
     echo "You can reconfigure anytime by editing: $CONFIG_FILE"
 else
     echo "Config already exists: $CONFIG_FILE"
+    if ! grep -q '^JOURNALS_ROOT=' "$CONFIG_FILE"; then
+        SYNC_ROOT_EXISTING=$(grep '^SYNC_ROOT=' "$CONFIG_FILE" | head -n1 | cut -d= -f2- | sed 's/^"//; s/"$//')
+        JOURNALS_ROOT="${SYNC_ROOT_EXISTING:-$HOME/vault}/Journals"
+        mkdir -p "$JOURNALS_ROOT"
+        quote() { local v="$1"; [[ "$v" == \"*\" ]] && echo "$v" || echo "\"$v\""; }
+        printf '\nJOURNALS_ROOT=%s\n' "$(quote "$JOURNALS_ROOT")" >> "$CONFIG_FILE"
+        echo "Added JOURNALS_ROOT to existing config: $JOURNALS_ROOT"
+    fi
 fi
 
 OS=$(uname -s)

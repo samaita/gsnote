@@ -49,7 +49,7 @@ curl -fsSL https://raw.githubusercontent.com/samaita/gsnote/main/install.sh | ba
 ```
 
 The script will:
-- Prompt for your Telegram bot token, habits folder, and Telegram ID
+- Prompt for your Telegram bot token, vault folders, and Telegram ID
 - Download the latest release binary to `~/.local/bin/gsnote`
 - Write config to `~/.config/gsnote/.env`
 - Optionally set up a systemd user service
@@ -99,6 +99,7 @@ GSNOTE_GIT_AUTHOR_EMAIL=your_email@example.com
 SYNC_ROOT=/home/youruser/vault
 HABITS_ROOT=/home/youruser/vault/Habits
 TASKS_ROOT=/home/youruser/vault/Tasks
+IDEAS_ROOT=/home/youruser/vault/Ideas
 NOTES_ROOT=/home/youruser/vault/Notes
 JOURNALS_ROOT=/home/youruser/vault/Journals
 CRON_ROOT=/home/youruser/vault/CRON
@@ -113,6 +114,7 @@ TIMEZONE=Asia/Jakarta
 - `SYNC_ROOT` — root of the git repository to sync (used by `/sync`)
 - `HABITS_ROOT` — subdirectory where habit markdown files will be written (created automatically)
 - `TASKS_ROOT` — subdirectory where task markdown files will be written (created automatically)
+- `IDEAS_ROOT` — subdirectory where idea markdown files will be written (created automatically)
 - `NOTES_ROOT` — subdirectory where note markdown files will be written (created automatically)
 - `JOURNALS_ROOT` — subdirectory where journal markdown files will be written (defaults to `<SYNC_ROOT>/Journals`)
 - `CRON_ROOT` — directory where scheduled command definitions are stored
