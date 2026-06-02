@@ -3,8 +3,10 @@ package handler
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/axonigma/gsnote/internal/cron"
+	"github.com/axonigma/gsnote/internal/journal"
 )
 
 func TestParseCronSpecAndCommandAcceptsDailyTaskView(t *testing.T) {
@@ -36,9 +38,22 @@ func TestParseCronSpecAndCommandRejectsUnsupportedCommand(t *testing.T) {
 	}
 }
 
+func TestParseCronSpecAndCommandAcceptsJournal(t *testing.T) {
+	spec, cmd, err := parseCronSpecAndCommand("23:00 /journal")
+	if err != nil {
+		t.Fatalf("parse cron journal args: %v", err)
+	}
+	if spec != "23:00" {
+		t.Fatalf("unexpected spec: %q", spec)
+	}
+	if cmd != "/journal" {
+		t.Fatalf("unexpected command: %q", cmd)
+	}
+}
+
 func TestExecuteScheduledCommandTaskViewUsesToday(t *testing.T) {
 	root := t.TempDir()
-	h := New(nil, root, root, root, root, root, root, "", "", "", nil)
+	h := New(nil, root, root, root, root, root, root, root, "", "", "", nil)
 
 	today := "2026-04-25"
 	if err := h.taskMgr.Add(today, "Review cron output"); err != nil {
@@ -57,7 +72,7 @@ func TestExecuteScheduledCommandTaskViewUsesToday(t *testing.T) {
 
 func TestExecuteDefaultTaskViewShowsMonthAndToday(t *testing.T) {
 	root := t.TempDir()
-	h := New(nil, root, root, root, root, root, root, "", "", "", nil)
+	h := New(nil, root, root, root, root, root, root, root, "", "", "", nil)
 
 	if err := h.taskMgr.Add("2026-04", "Monthly only"); err != nil {
 		t.Fatalf("add monthly task: %v", err)
@@ -74,6 +89,32 @@ func TestExecuteDefaultTaskViewShowsMonthAndToday(t *testing.T) {
 	expected := "Tasks 2026-04:\n1. [ ] Monthly only\n\nTasks 2026-04-25:\n1. [ ] Today task"
 	if out != expected {
 		t.Fatalf("unexpected output:\n%s", out)
+	}
+}
+
+func TestExecuteScheduledJournalPromptsOnlyWhenMissing(t *testing.T) {
+	root := t.TempDir()
+	h := New(nil, root, root, root, root, root, root, root, "", "", "", nil)
+	loc := time.FixedZone("GMT+7", 7*60*60)
+	now := time.Date(2026, 6, 3, 23, 0, 0, 0, loc)
+
+	out, err := h.executeScheduledCommand("/journal", 123, now)
+	if err != nil {
+		t.Fatalf("execute scheduled journal: %v", err)
+	}
+	if out != "Time to complete your journal. What happened today?" {
+		t.Fatalf("unexpected missing journal prompt: %q", out)
+	}
+
+	if err := h.journalMgr.Write(now, journal.Entry{Summary: "Done", Highlights: []string{"Win"}, Blockers: []string{"None"}, Closing: "Close"}); err != nil {
+		t.Fatalf("write journal: %v", err)
+	}
+	out, err = h.executeScheduledCommand("/journal", 123, now)
+	if err != nil {
+		t.Fatalf("execute scheduled journal with data: %v", err)
+	}
+	if out != "" {
+		t.Fatalf("expected no prompt when journal exists, got %q", out)
 	}
 }
 

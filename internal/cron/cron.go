@@ -27,6 +27,7 @@ var (
 
 var allowedCommands = map[string]bool{
 	"/task view": true,
+	"/journal":   true,
 	"/sync":      true,
 }
 

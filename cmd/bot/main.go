@@ -87,6 +87,11 @@ func main() {
 		log.Fatal("NOTES_ROOT is required")
 	}
 
+	journalsRoot := os.Getenv("JOURNALS_ROOT")
+	if journalsRoot == "" {
+		journalsRoot = filepath.Join(syncRoot, "Journals")
+	}
+
 	cronRoot := os.Getenv("CRON_ROOT")
 	if cronRoot == "" {
 		cronRoot = filepath.Join(syncRoot, "CRON")
@@ -134,11 +139,15 @@ func main() {
 		log.Fatalf("create notes root: %v", err)
 	}
 
+	if err := os.MkdirAll(journalsRoot, 0755); err != nil {
+		log.Fatalf("create journals root: %v", err)
+	}
+
 	if err := os.MkdirAll(cronRoot, 0755); err != nil {
 		log.Fatalf("create cron root: %v", err)
 	}
 
-	log.Printf("config habits_root=%s sync_root=%s tasks_root=%s ideas_root=%s notes_root=%s cron_root=%s whitelist_telegram_id=%s", habitsRoot, syncRoot, tasksRoot, ideasRoot, notesRoot, cronRoot, whitelistTelegramIDStr)
+	log.Printf("config habits_root=%s sync_root=%s tasks_root=%s ideas_root=%s notes_root=%s journals_root=%s cron_root=%s whitelist_telegram_id=%s", habitsRoot, syncRoot, tasksRoot, ideasRoot, notesRoot, journalsRoot, cronRoot, whitelistTelegramIDStr)
 
 	bot, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
@@ -153,7 +162,7 @@ func main() {
 	}
 	log.Printf("allowed for %s\n", strings.Join(whitelistedTelegramIDs, ","))
 
-	h := handler.New(bot, habitsRoot, syncRoot, tasksRoot, ideasRoot, notesRoot, cronRoot, githubToken, gitAuthorName, gitAuthorEmail, whitelistTelegramIDMap)
+	h := handler.New(bot, habitsRoot, syncRoot, tasksRoot, ideasRoot, notesRoot, journalsRoot, cronRoot, githubToken, gitAuthorName, gitAuthorEmail, whitelistTelegramIDMap)
 	h.StartCronScheduler()
 
 	u := tgbotapi.NewUpdate(0)

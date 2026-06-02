@@ -38,6 +38,9 @@ func TestNormalizeCommandAllowlist(t *testing.T) {
 	if got, err := NormalizeCommand("/task view"); err != nil || got != "/task view" {
 		t.Fatalf("expected /task view, got %q err=%v", got, err)
 	}
+	if got, err := NormalizeCommand("/journal"); err != nil || got != "/journal" {
+		t.Fatalf("expected /journal, got %q err=%v", got, err)
+	}
 	if _, err := NormalizeCommand("/note https://example.com desc"); !errors.Is(err, ErrUnsupportedCmd) {
 		t.Fatalf("expected unsupported command error, got %v", err)
 	}

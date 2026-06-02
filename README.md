@@ -1,10 +1,10 @@
 # gsnote
 
-A low-friction Telegram bot for capturing habits, tasks, ideas, and notes in markdown files compatible with Obsidian.
+A low-friction Telegram bot for capturing habits, tasks, ideas, journal entries, and notes in markdown files compatible with Obsidian.
 
 ## How it works
 
-Send commands to your Telegram bot to log habits, manage tasks, capture ideas, save notes, sync your vault, and schedule supported commands.
+Send commands to your Telegram bot to log habits, manage tasks, capture ideas, complete guided journal entries, save notes, sync your vault, and schedule supported commands.
 
 Run `/help` in Telegram to see the latest supported commands and usage. The command list changes over time, so the bot's built-in help is the source of truth.
 
@@ -100,6 +100,7 @@ SYNC_ROOT=/home/youruser/vault
 HABITS_ROOT=/home/youruser/vault/Habits
 TASKS_ROOT=/home/youruser/vault/Tasks
 NOTES_ROOT=/home/youruser/vault/Notes
+JOURNALS_ROOT=/home/youruser/vault/Journals
 CRON_ROOT=/home/youruser/vault/CRON
 WHITELIST_TELEGRAM_ID=your_telegram_id
 TIMEZONE=Asia/Jakarta
@@ -113,6 +114,7 @@ TIMEZONE=Asia/Jakarta
 - `HABITS_ROOT` — subdirectory where habit markdown files will be written (created automatically)
 - `TASKS_ROOT` — subdirectory where task markdown files will be written (created automatically)
 - `NOTES_ROOT` — subdirectory where note markdown files will be written (created automatically)
+- `JOURNALS_ROOT` — subdirectory where journal markdown files will be written (defaults to `<SYNC_ROOT>/Journals`)
 - `CRON_ROOT` — directory where scheduled command definitions are stored
 - `WHITELIST_TELEGRAM_ID` — your numeric Telegram ID from [@userinfobot](https://t.me/userinfobot)
 - `TIMEZONE` — IANA timezone name used for timestamps (e.g. `Asia/Jakarta`, `UTC`, `America/New_York`)
@@ -143,7 +145,8 @@ Run `/help` in Telegram for the current command list and usage details.
 | `/task ...` | Manage tasks |
 | `/idea <type> <title>` | Capture an idea |
 | `/note <link> <desc>` | Save a link with your take |
-| `/cron ...` | Schedule `/task view` or `/sync` |
+| `/journal` | Complete today's guided journal |
+| `/cron ...` | Schedule `/task view`, `/journal`, or `/sync` |
 | `/sync` | Sync `SYNC_ROOT` to origin main using embedded go-git flow |
 | `/help` | Show usage |
 
@@ -152,7 +155,19 @@ Run `/help` in Telegram for the current command list and usage details.
 `/cron` currently supports:
 
 - `/task view`
+- `/journal`
 - `/sync`
+
+### Journal
+
+`/journal` starts or resumes a guided daily journal flow:
+
+- summary
+- one or more highlights
+- one or more blockers
+- closing reflection
+
+Completed entries are appended to `Journals/YYYY-MM-DD.md`. Use `/journal cancel` to stop the current flow, or `/journal clear` to delete today's journal file.
 
 ### Task view
 
@@ -165,6 +180,7 @@ Run `/help` in Telegram for the current command list and usage details.
 Accepted schedule formats:
 
 - `HH:MM` for a daily recurring run, for example `/cron 06:00 /task view`
+- `HH:MM` for the daily journal reminder, for example `/cron 23:00 /journal`
 - 5-field cron syntax, for example `/cron */5 * * * * /sync`
 
 Manage entries with:

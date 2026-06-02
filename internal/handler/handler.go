@@ -15,6 +15,7 @@ import (
 
 	"github.com/axonigma/gsnote/internal/cron"
 	"github.com/axonigma/gsnote/internal/idea"
+	"github.com/axonigma/gsnote/internal/journal"
 	"github.com/axonigma/gsnote/internal/note"
 	"github.com/axonigma/gsnote/internal/parser"
 	"github.com/axonigma/gsnote/internal/syncgit"
@@ -138,6 +139,11 @@ const noteUsageText = `Usage:
 Examples:
   /note https://www.google.com a search engine made by Google`
 
+const journalHelpText = `Available journal commands:
+  /journal        — start or resume today's guided journal
+  /journal cancel — stop the current journal flow
+  /journal clear  — delete today's journal file`
+
 const cronHelpText = `Available cron commands:
   /cron <HH:MM> <command>       — run a command daily
   /cron <cron spec> <command>  — run a command on a cron schedule
@@ -147,10 +153,12 @@ const cronHelpText = `Available cron commands:
 
 Supported commands:
   /task view
+  /journal
   /sync
 
 Examples:
   /cron 06:00 /task view
+  /cron 23:00 /journal
   /cron */5 * * * * /sync
   /cron edit 2 07:30 /task view
   /cron delete 2`
@@ -160,19 +168,21 @@ const helpText = `Available commands:
   /task  — manage tasks
   /idea  — capture an idea (pain, insight, or content)
   /note  — save a link with your take
-  /cron  — schedule /task view or /sync
+  /journal — complete today's guided journal
+  /cron  — schedule /task view, /journal, or /sync
   /sync  — git add, commit, and push to origin main
 
 Tip: type a command alone to see its full usage.`
 
 const (
-	cmdHabit = "/habit"
-	cmdTask  = "/task"
-	cmdIdea  = "/idea"
-	cmdNote  = "/note"
-	cmdCron  = "/cron"
-	cmdSync  = "/sync"
-	cmdHelp  = "/help"
+	cmdHabit   = "/habit"
+	cmdTask    = "/task"
+	cmdIdea    = "/idea"
+	cmdNote    = "/note"
+	cmdJournal = "/journal"
+	cmdCron    = "/cron"
+	cmdSync    = "/sync"
+	cmdHelp    = "/help"
 )
 
 const habitCmdList = "list"
@@ -194,30 +204,39 @@ type Handler struct {
 	syncRoot            string
 	ideasRoot           string
 	notesRoot           string
+	journalMgr          *journal.Manager
 	syncer              *syncgit.Service
 	taskMgr             *task.Manager
 	cronStore           *cron.Store
 	whitelistTelegramID map[int64]bool
 	pendingNotes        map[int64]string // userID → note file path awaiting "My Take"
+	journalSessions     map[int64]*journal.Session
 }
 
-func New(bot *tgbotapi.BotAPI, habitsRoot, syncRoot, tasksRoot, ideasRoot, notesRoot, cronRoot, githubToken, gitAuthorName, gitAuthorEmail string, whitelistTelegramID map[int64]bool) *Handler {
+func New(bot *tgbotapi.BotAPI, habitsRoot, syncRoot, tasksRoot, ideasRoot, notesRoot, journalsRoot, cronRoot, githubToken, gitAuthorName, gitAuthorEmail string, whitelistTelegramID map[int64]bool) *Handler {
 	return &Handler{
 		bot:                 bot,
 		habitsRoot:          habitsRoot,
 		syncRoot:            syncRoot,
 		ideasRoot:           ideasRoot,
 		notesRoot:           notesRoot,
+		journalMgr:          journal.New(journalsRoot),
 		syncer:              syncgit.New(syncRoot, githubToken, gitAuthorName, gitAuthorEmail),
 		taskMgr:             task.New(tasksRoot),
 		cronStore:           cron.NewStore(cronRoot),
 		whitelistTelegramID: whitelistTelegramID,
 		pendingNotes:        make(map[int64]string),
+		journalSessions:     make(map[int64]*journal.Session),
 	}
 }
 
 // Handle routes incoming updates to the appropriate command handler.
 func (h *Handler) Handle(update tgbotapi.Update) {
+	if update.CallbackQuery != nil {
+		h.handleCallback(update.CallbackQuery)
+		return
+	}
+
 	if update.Message == nil {
 		return
 	}
@@ -230,6 +249,21 @@ func (h *Handler) Handle(update tgbotapi.Update) {
 	}
 
 	if !strings.HasPrefix(text, "/") {
+		if session, ok := h.journalSessions[msg.Chat.ID]; ok {
+			if session.AcceptText(text) {
+				if err := h.journalMgr.Write(time.Now().In(time.Local), session.Entry()); err != nil {
+					log.Printf("journal write error: %v", err)
+					h.reply(msg, "Failed to save journal.")
+					return
+				}
+				delete(h.journalSessions, msg.Chat.ID)
+				h.reply(msg, "Journal saved.")
+				return
+			}
+			h.replyJournalPrompt(msg, session)
+			return
+		}
+
 		if filePath, ok := h.pendingNotes[msg.From.ID]; ok {
 			delete(h.pendingNotes, msg.From.ID)
 			if err := note.FillMyTake(filePath, text); err != nil {
@@ -251,6 +285,8 @@ func (h *Handler) Handle(update tgbotapi.Update) {
 		h.handleIdea(msg, strings.TrimPrefix(text, cmdIdea))
 	case strings.HasPrefix(text, cmdNote):
 		h.handleNote(msg, strings.TrimPrefix(text, cmdNote))
+	case strings.HasPrefix(text, cmdJournal):
+		h.handleJournal(msg, strings.TrimPrefix(text, cmdJournal))
 	case strings.HasPrefix(text, cmdCron):
 		h.handleCron(msg, strings.TrimPrefix(text, cmdCron))
 	case text == cmdSync:
@@ -260,6 +296,41 @@ func (h *Handler) Handle(update tgbotapi.Update) {
 	case strings.Split(text, "")[0] == "/":
 		h.reply(msg, warnText)
 	}
+}
+
+func (h *Handler) handleCallback(callback *tgbotapi.CallbackQuery) {
+	if callback.Message == nil || callback.From == nil {
+		return
+	}
+	if h.whitelistTelegramID != nil && !h.whitelistTelegramID[callback.From.ID] {
+		return
+	}
+
+	chatID := callback.Message.Chat.ID
+	session, ok := h.journalSessions[chatID]
+	if !ok {
+		h.sendToChat(chatID, "No active journal session.")
+		return
+	}
+
+	switch callback.Data {
+	case "journal:more_highlights":
+		session.ChooseMoreHighlights()
+	case "journal:no_more_highlights":
+		session.ChooseNoMoreHighlights()
+	case "journal:more_blockers":
+		session.ChooseMoreBlockers()
+	case "journal:no_more_blockers":
+		session.ChooseNoMoreBlockers()
+	case "journal:cancel":
+		delete(h.journalSessions, chatID)
+		h.sendToChat(chatID, "Journal flow canceled.")
+		return
+	default:
+		return
+	}
+
+	h.sendJournalPrompt(chatID, session)
 }
 
 func (h *Handler) handleHabitList(msg *tgbotapi.Message) {
@@ -372,6 +443,39 @@ func (h *Handler) handleNote(msg *tgbotapi.Message, args string) {
 
 	h.pendingNotes[msg.From.ID] = filePath
 	h.reply(msg, "What is your take?")
+}
+
+func (h *Handler) handleJournal(msg *tgbotapi.Message, args string) {
+	args = strings.TrimSpace(args)
+	today := time.Now().In(time.Local)
+
+	switch args {
+	case "":
+		session := h.ensureJournalSession(msg.Chat.ID)
+		h.replyJournalPrompt(msg, session)
+	case "cancel":
+		delete(h.journalSessions, msg.Chat.ID)
+		h.reply(msg, "Journal flow canceled.")
+	case "clear":
+		if err := h.journalMgr.Clear(today); err != nil {
+			log.Printf("journal clear error: %v", err)
+			h.reply(msg, "Failed to clear today's journal.")
+			return
+		}
+		delete(h.journalSessions, msg.Chat.ID)
+		h.reply(msg, "Today's journal cleared.")
+	default:
+		h.reply(msg, journalHelpText)
+	}
+}
+
+func (h *Handler) ensureJournalSession(chatID int64) *journal.Session {
+	session, ok := h.journalSessions[chatID]
+	if !ok {
+		session = journal.NewSession()
+		h.journalSessions[chatID] = session
+	}
+	return session
 }
 
 func (h *Handler) handleSync(msg *tgbotapi.Message) {
@@ -611,9 +715,12 @@ func (h *Handler) StartCronScheduler() {
 					continue
 				}
 
-				out, err := h.executeScheduledCommand(entry.Cmd)
+				out, err := h.executeScheduledCommand(entry.Cmd, entry.ChatID, now)
 				if err != nil {
 					log.Printf("cron scheduler execute error cmd=%q: %v", entry.Cmd, err)
+				}
+				if out == "" {
+					continue
 				}
 				h.sendToChat(entry.ChatID, out)
 			}
@@ -621,11 +728,16 @@ func (h *Handler) StartCronScheduler() {
 	}()
 }
 
-func (h *Handler) executeScheduledCommand(cmd string) (string, error) {
+func (h *Handler) executeScheduledCommand(cmd string, chatID int64, now time.Time) (string, error) {
 	switch cmd {
 	case "/task view":
-		now := time.Now().In(time.Local)
 		return h.executeDefaultTaskView(now.Format("2006-01-02"))
+	case "/journal":
+		if h.journalMgr.HasData(now) {
+			return "", nil
+		}
+		session := h.ensureJournalSession(chatID)
+		return "Time to complete your journal. " + session.Prompt(), nil
 	case "/sync":
 		return h.executeSync()
 	default:
@@ -704,7 +816,7 @@ func parseCronEditArgs(args string) (line int, spec, cmd string, err error) {
 
 func parseCronSpecAndCommand(args string) (spec, cmd string, err error) {
 	args = strings.TrimSpace(args)
-	commands := []string{"/task view", "/sync"}
+	commands := []string{"/task view", "/journal", "/sync"}
 	slices.SortFunc(commands, func(a, b string) int {
 		return len(b) - len(a)
 	})
@@ -729,7 +841,7 @@ func parseCronSpecAndCommand(args string) (spec, cmd string, err error) {
 func formatCronError(err error) string {
 	switch {
 	case errors.Is(err, cron.ErrUnsupportedCmd):
-		return "Unsupported cron command. Allowed: /task view, /sync."
+		return "Unsupported cron command. Allowed: /task view, /journal, /sync."
 	case errors.Is(err, cron.ErrEntryNotFound):
 		return "Cron entry not found."
 	case errors.Is(err, cron.ErrMultipleFiles):
@@ -821,6 +933,57 @@ func (h *Handler) reply(msg *tgbotapi.Message, text string) {
 		return
 	}
 	h.sendToChat(msg.Chat.ID, text, msg.MessageID)
+}
+
+func (h *Handler) replyJournalPrompt(msg *tgbotapi.Message, session *journal.Session) {
+	if msg == nil {
+		return
+	}
+	h.sendJournalPrompt(msg.Chat.ID, session, msg.MessageID)
+}
+
+func (h *Handler) sendJournalPrompt(chatID int64, session *journal.Session, replyIDs ...int) {
+	if h.bot == nil {
+		return
+	}
+
+	message := tgbotapi.NewMessage(chatID, session.Prompt())
+	if len(replyIDs) > 0 {
+		message.ReplyToMessageID = replyIDs[0]
+	}
+
+	switch session.Step() {
+	case journal.StepMoreHighlights:
+		message.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("More highlights", "journal:more_highlights"),
+				tgbotapi.NewInlineKeyboardButtonData("No more", "journal:no_more_highlights"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("Cancel", "journal:cancel"),
+			),
+		)
+	case journal.StepMoreBlockers:
+		message.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("More blockers", "journal:more_blockers"),
+				tgbotapi.NewInlineKeyboardButtonData("No more", "journal:no_more_blockers"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("Cancel", "journal:cancel"),
+			),
+		)
+	default:
+		message.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("Cancel", "journal:cancel"),
+			),
+		)
+	}
+
+	if _, err := h.bot.Send(message); err != nil {
+		log.Printf("send journal prompt error: %v", err)
+	}
 }
 
 func (h *Handler) sendToChat(chatID int64, text string, replyIDs ...int) {
