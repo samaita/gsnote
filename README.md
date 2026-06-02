@@ -191,6 +191,17 @@ Manage entries with:
 - `/cron edit N <spec> <command>`
 - `/cron delete N`
 
+## Feature update checklist
+
+When adding or changing a feature, update every setup surface that users may copy or run:
+
+- `.env.example` for new or changed environment variables
+- `README.md` manual setup examples and command documentation
+- `install.sh` prompts, generated `.env` output, created folders, and existing-config migration
+- `gsnote.service.example` when service execution, environment loading, working directory, or systemd settings change
+
+Run `bash -n install.sh uninstall.sh`, `go test ./...`, and `go build ./...` before committing the update.
+
 ## Requirements
 
 - Go 1.21+
