@@ -73,31 +73,6 @@ func main() {
 		log.Fatal("SYNC_ROOT is required")
 	}
 
-	tasksRoot := os.Getenv("TASKS_ROOT")
-	if tasksRoot == "" {
-		log.Fatal("TASKS_ROOT is required")
-	}
-
-	ideasRoot := os.Getenv("IDEAS_ROOT")
-	if ideasRoot == "" {
-		log.Fatal("IDEAS_ROOT is required")
-	}
-
-	notesRoot := os.Getenv("NOTES_ROOT")
-	if notesRoot == "" {
-		log.Fatal("NOTES_ROOT is required")
-	}
-
-	journalsRoot := os.Getenv("JOURNALS_ROOT")
-	if journalsRoot == "" {
-		journalsRoot = filepath.Join(syncRoot, "Journals")
-	}
-
-	cronRoot := os.Getenv("CRON_ROOT")
-	if cronRoot == "" {
-		cronRoot = filepath.Join(syncRoot, "CRON")
-	}
-
 	voicesRoot := os.Getenv("VOICES_ROOT")
 	if voicesRoot == "" {
 		voicesRoot = filepath.Join(syncRoot, "Voices")
@@ -157,31 +132,11 @@ func main() {
 		log.Fatalf("create habits root: %v", err)
 	}
 
-	if err := os.MkdirAll(tasksRoot, 0755); err != nil {
-		log.Fatalf("create tasks root: %v", err)
-	}
-
-	if err := os.MkdirAll(ideasRoot, 0755); err != nil {
-		log.Fatalf("create ideas root: %v", err)
-	}
-
-	if err := os.MkdirAll(notesRoot, 0755); err != nil {
-		log.Fatalf("create notes root: %v", err)
-	}
-
-	if err := os.MkdirAll(journalsRoot, 0755); err != nil {
-		log.Fatalf("create journals root: %v", err)
-	}
-
-	if err := os.MkdirAll(cronRoot, 0755); err != nil {
-		log.Fatalf("create cron root: %v", err)
-	}
-
 	if err := os.MkdirAll(voicesRoot, 0755); err != nil {
 		log.Fatalf("create voices root: %v", err)
 	}
 
-	log.Printf("config habits_root=%s sync_root=%s tasks_root=%s ideas_root=%s notes_root=%s journals_root=%s cron_root=%s voices_root=%s whitelist_telegram_id=%s", habitsRoot, syncRoot, tasksRoot, ideasRoot, notesRoot, journalsRoot, cronRoot, voicesRoot, whitelistTelegramIDStr)
+	log.Printf("config habits_root=%s sync_root=%s voices_root=%s whitelist_telegram_id=%s", habitsRoot, syncRoot, voicesRoot, whitelistTelegramIDStr)
 
 	bot, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
@@ -196,13 +151,12 @@ func main() {
 	}
 	log.Printf("allowed for %s\n", strings.Join(whitelistedTelegramIDs, ","))
 
-	h := handler.New(bot, habitsRoot, syncRoot, tasksRoot, ideasRoot, notesRoot, journalsRoot, cronRoot, githubToken, gitAuthorName, gitAuthorEmail, whitelistTelegramIDMap)
+	h := handler.New(bot, habitsRoot, syncRoot, githubToken, gitAuthorName, gitAuthorEmail, whitelistTelegramIDMap)
 
 	if llmAPIKey != "" && sttModel != "" {
 		vp := voice.NewProcessor(bot, sttBin, sttModel, sttLang, llmAPIKey, llmBaseURL, llmModel, voicesRoot, syncRoot)
 		h.StartVoiceProcessor(vp)
 	}
-	h.StartCronScheduler()
 
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60

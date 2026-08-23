@@ -6,20 +6,13 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"slices"
-	"strconv"
 	"strings"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
-	"github.com/axonigma/gsnote/internal/cron"
-	"github.com/axonigma/gsnote/internal/idea"
-	"github.com/axonigma/gsnote/internal/journal"
-	"github.com/axonigma/gsnote/internal/note"
 	"github.com/axonigma/gsnote/internal/parser"
 	"github.com/axonigma/gsnote/internal/syncgit"
-	"github.com/axonigma/gsnote/internal/task"
 	"github.com/axonigma/gsnote/internal/voice"
 	"github.com/axonigma/gsnote/internal/writer"
 )
@@ -42,109 +35,6 @@ Examples:
   /habit run 2.5 morning jog
   /habit list`
 
-const taskHelpText = `Available task commands:
-  /task new     — add a task
-  /task view    — view today and this month tasks
-  /task done    — mark a task complete
-  /task edit    — edit a task
-  /task delete  — delete a task`
-
-const taskNewUsageText = `Usage:
-  /task new <text>
-  /task new YYYY-MM-DD <text>
-  /task new YYYY-MM <text>
-
-  text       — task description (required)
-  YYYY-MM-DD — schedule for a date (default: today)
-  YYYY-MM    — schedule for a month
-
-Examples:
-  /task new Buy groceries
-  /task new 2026-04 Plan monthly review
-  /task new 2026-04-21 Submit report`
-
-const taskViewUsageText = `Usage:
-  /task view
-  /task view YYYY-MM
-  /task view YYYY-MM-DD
-
-  /task view         — show this month and today
-  YYYY-MM            — month to view
-  YYYY-MM-DD         — date to view
-
-Examples:
-  /task view
-  /task view 2026-04
-  /task view 2026-04-21`
-
-const taskDoneUsageText = `Usage:
-  /task done N
-  /task done YYYY-MM-DD N
-  /task done YYYY-MM N
-
-  N          — task number shown in /task view
-  YYYY-MM-DD — date of the task (default: today)
-  YYYY-MM    — month of the task
-
-Examples:
-  /task done 2
-  /task done 2026-04 2
-  /task done 2026-04-21 2`
-
-const taskEditUsageText = `Usage:
-  /task edit N <text>
-  /task edit YYYY-MM-DD N <text>
-  /task edit YYYY-MM N <text>
-
-  N          — task number shown in /task view
-  text       — replacement text
-  YYYY-MM-DD — date of the task (default: today)
-  YYYY-MM    — month of the task
-
-Examples:
-  /task edit 2 Buy more groceries
-  /task edit 2026-04 2 Update roadmap
-  /task edit 2026-04-21 2 Submit final report`
-
-const taskDeleteUsageText = `Usage:
-  /task delete N
-  /task delete YYYY-MM-DD N
-  /task delete YYYY-MM N
-
-  N          — task number shown in /task view
-  YYYY-MM-DD — date of the task (default: today)
-  YYYY-MM    — month of the task
-
-Examples:
-  /task delete 2
-  /task delete 2026-04 2
-  /task delete 2026-04-21 2`
-
-const ideaUsageText = `Usage:
-  /idea <type> <title>
-
-  type  — one of: pain, insight, content (required)
-  title — free text describing the idea (required)
-
-Examples:
-  /idea pain address invalid bikin retry cost tinggi
-  /idea insight validator harus shift-left ke input
-  /idea content why failed delivery is preventable not operational`
-
-const noteUsageText = `Usage:
-  /note <link> <desc>
-
-  link — URL of the resource (required)
-  desc — short description (required)
-
-Examples:
-  /note https://www.google.com a search engine made by Google`
-
-const journalHelpText = `Available journal commands:
-  /journal        — start or resume today's guided journal
-  /journal cancel — stop the current journal flow
-  /journal clear  — delete today's journal file`
-
 const voiceUsageText = `Available voice commands:
   /voice list           — list recent voice captures
   /voice delete <id>    — delete a voice capture, e.g. /voice delete 00001
@@ -152,59 +42,21 @@ const voiceUsageText = `Available voice commands:
 
 Tip: send a Telegram voice message to capture a note.`
 
-
-const cronHelpText = `Available cron commands:
-  /cron <HH:MM> <command>       — run a command daily
-  /cron <cron spec> <command>  — run a command on a cron schedule
-  /cron view                   — view scheduled commands
-  /cron edit N <spec> <command>   — replace a scheduled command
-  /cron delete N                  — delete a scheduled command
-
-Supported commands:
-  /task view
-  /journal
-  /sync
-
-Examples:
-  /cron 06:00 /task view
-  /cron 23:00 /journal
-  /cron */5 * * * * /sync
-  /cron edit 2 07:30 /task view
-  /cron delete 2`
-
 const helpText = `Available commands:
   /habit — log or list habits
-  /task  — manage tasks
-  /idea  — capture an idea (pain, insight, or content)
-  /note  — save a link with your take
   /voice — capture a voice note; manage with /voice list, /voice delete
-  /journal — complete today's guided journal
-  /cron  — schedule /task view, /journal, or /sync
   /sync  — git add, commit, and push to origin main
 
 Tip: type a command alone to see its full usage.`
 
 const (
-	cmdHabit   = "/habit"
-	cmdTask    = "/task"
-	cmdIdea    = "/idea"
-	cmdNote    = "/note"
-	cmdVoice   = "/voice"
-	cmdJournal = "/journal"
-	cmdCron    = "/cron"
-	cmdSync    = "/sync"
-	cmdHelp    = "/help"
+	cmdHabit = "/habit"
+	cmdVoice = "/voice"
+	cmdSync  = "/sync"
+	cmdHelp  = "/help"
 )
 
 const habitCmdList = "list"
-
-const (
-	taskCmdNew    = "new"
-	taskCmdView   = "view"
-	taskCmdDone   = "done"
-	taskCmdEdit   = "edit"
-	taskCmdDelete = "delete"
-)
 
 const warnText = `Command not found, use /help for guide`
 
@@ -220,32 +72,18 @@ type Handler struct {
 	bot                 *tgbotapi.BotAPI
 	habitsRoot          string
 	syncRoot            string
-	ideasRoot           string
-	notesRoot           string
-	journalMgr          *journal.Manager
 	syncer              *syncgit.Service
-	taskMgr             *task.Manager
-	cronStore           *cron.Store
 	whitelistTelegramID map[int64]bool
-	pendingNotes        map[int64]string // userID → note file path awaiting "My Take"
-	journalSessions     map[int64]*journal.Session
 	voiceSvc            voiceService
 }
 
-func New(bot *tgbotapi.BotAPI, habitsRoot, syncRoot, tasksRoot, ideasRoot, notesRoot, journalsRoot, cronRoot, githubToken, gitAuthorName, gitAuthorEmail string, whitelistTelegramID map[int64]bool) *Handler {
+func New(bot *tgbotapi.BotAPI, habitsRoot, syncRoot, githubToken, gitAuthorName, gitAuthorEmail string, whitelistTelegramID map[int64]bool) *Handler {
 	return &Handler{
 		bot:                 bot,
 		habitsRoot:          habitsRoot,
 		syncRoot:            syncRoot,
-		ideasRoot:           ideasRoot,
-		notesRoot:           notesRoot,
-		journalMgr:          journal.New(journalsRoot),
 		syncer:              syncgit.New(syncRoot, githubToken, gitAuthorName, gitAuthorEmail),
-		taskMgr:             task.New(tasksRoot),
-		cronStore:           cron.NewStore(cronRoot),
 		whitelistTelegramID: whitelistTelegramID,
-		pendingNotes:        make(map[int64]string),
-		journalSessions:     make(map[int64]*journal.Session),
 	}
 }
 
@@ -257,11 +95,6 @@ func (h *Handler) StartVoiceProcessor(vp voiceService) {
 
 // Handle routes incoming updates to the appropriate command handler.
 func (h *Handler) Handle(update tgbotapi.Update) {
-	if update.CallbackQuery != nil {
-		h.handleCallback(update.CallbackQuery)
-		return
-	}
-
 	if update.Message == nil {
 		return
 	}
@@ -282,49 +115,11 @@ func (h *Handler) Handle(update tgbotapi.Update) {
 		return
 	}
 
-	if !strings.HasPrefix(text, "/") {
-		if session, ok := h.journalSessions[msg.Chat.ID]; ok {
-			if session.AcceptText(text) {
-				if err := h.journalMgr.Write(time.Now().In(time.Local), session.Entry()); err != nil {
-					log.Printf("journal write error: %v", err)
-					h.reply(msg, "Failed to save journal.")
-					return
-				}
-				delete(h.journalSessions, msg.Chat.ID)
-				h.reply(msg, "Journal saved.")
-				return
-			}
-			h.replyJournalPrompt(msg, session)
-			return
-		}
-
-		if filePath, ok := h.pendingNotes[msg.From.ID]; ok {
-			delete(h.pendingNotes, msg.From.ID)
-			if err := note.FillMyTake(filePath, text); err != nil {
-				log.Printf("fill my take error: %v", err)
-				h.reply(msg, "Failed to save your take.")
-				return
-			}
-			h.reply(msg, "Note saved!")
-			return
-		}
-	}
-
 	switch {
 	case strings.HasPrefix(text, cmdHabit):
 		h.handleHabit(msg, strings.TrimPrefix(text, cmdHabit))
-	case strings.HasPrefix(text, cmdTask):
-		h.handleTask(msg, strings.TrimPrefix(text, cmdTask))
-	case strings.HasPrefix(text, cmdIdea):
-		h.handleIdea(msg, strings.TrimPrefix(text, cmdIdea))
-	case strings.HasPrefix(text, cmdNote):
-		h.handleNote(msg, strings.TrimPrefix(text, cmdNote))
 	case strings.HasPrefix(text, cmdVoice):
 		h.handleVoice(msg, strings.TrimPrefix(text, cmdVoice))
-	case strings.HasPrefix(text, cmdJournal):
-		h.handleJournal(msg, strings.TrimPrefix(text, cmdJournal))
-	case strings.HasPrefix(text, cmdCron):
-		h.handleCron(msg, strings.TrimPrefix(text, cmdCron))
 	case text == cmdSync:
 		h.handleSync(msg)
 	case text == cmdHelp:
@@ -332,41 +127,6 @@ func (h *Handler) Handle(update tgbotapi.Update) {
 	case strings.Split(text, "")[0] == "/":
 		h.reply(msg, warnText)
 	}
-}
-
-func (h *Handler) handleCallback(callback *tgbotapi.CallbackQuery) {
-	if callback.Message == nil || callback.From == nil {
-		return
-	}
-	if h.whitelistTelegramID != nil && !h.whitelistTelegramID[callback.From.ID] {
-		return
-	}
-
-	chatID := callback.Message.Chat.ID
-	session, ok := h.journalSessions[chatID]
-	if !ok {
-		h.sendToChat(chatID, "No active journal session.")
-		return
-	}
-
-	switch callback.Data {
-	case "journal:more_highlights":
-		session.ChooseMoreHighlights()
-	case "journal:no_more_highlights":
-		session.ChooseNoMoreHighlights()
-	case "journal:more_blockers":
-		session.ChooseMoreBlockers()
-	case "journal:no_more_blockers":
-		session.ChooseNoMoreBlockers()
-	case "journal:cancel":
-		delete(h.journalSessions, chatID)
-		h.sendToChat(chatID, "Journal flow canceled.")
-		return
-	default:
-		return
-	}
-
-	h.sendJournalPrompt(chatID, session)
 }
 
 func (h *Handler) handleHabitList(msg *tgbotapi.Message) {
@@ -435,52 +195,6 @@ func (h *Handler) handleHabit(msg *tgbotapi.Message, args string) {
 	h.reply(msg, fmt.Sprintf("Logged: %s", input.Habit))
 }
 
-func (h *Handler) handleIdea(msg *tgbotapi.Message, args string) {
-	args = strings.TrimSpace(args)
-	if args == "" {
-		h.reply(msg, ideaUsageText)
-		return
-	}
-
-	input, err := idea.Parse(args)
-	if err != nil {
-		h.reply(msg, "Please re-enter with the correct format. Use /help.")
-		return
-	}
-
-	if err := idea.Write(h.ideasRoot, input, time.Now()); err != nil {
-		log.Printf("write error for idea %q: %v", input.Title, err)
-		h.reply(msg, "Try again with the correct command. Use /help.")
-		return
-	}
-
-	h.reply(msg, fmt.Sprintf("Idea captured: %s", input.Title))
-}
-
-func (h *Handler) handleNote(msg *tgbotapi.Message, args string) {
-	args = strings.TrimSpace(args)
-	if args == "" {
-		h.reply(msg, noteUsageText)
-		return
-	}
-
-	input, err := note.Parse(args)
-	if err != nil {
-		h.reply(msg, "Please re-enter with the correct format. Use /help.")
-		return
-	}
-
-	filePath, err := note.Write(h.notesRoot, input, time.Now())
-	if err != nil {
-		log.Printf("write error for note %q: %v", input.Desc, err)
-		h.reply(msg, "Try again with the correct command. Use /help.")
-		return
-	}
-
-	h.pendingNotes[msg.From.ID] = filePath
-	h.reply(msg, "What is your take?")
-}
-
 func (h *Handler) handleVoice(msg *tgbotapi.Message, args string) {
 	if h.voiceSvc == nil {
 		h.reply(msg, "Voice capture unavailable: STT/LLM not configured.")
@@ -519,327 +233,12 @@ func (h *Handler) handleVoice(msg *tgbotapi.Message, args string) {
 	}
 }
 
-func (h *Handler) handleJournal(msg *tgbotapi.Message, args string) {
-	args = strings.TrimSpace(args)
-	today := time.Now().In(time.Local)
-
-	switch args {
-	case "":
-		session := h.ensureJournalSession(msg.Chat.ID)
-		h.replyJournalPrompt(msg, session)
-	case "cancel":
-		delete(h.journalSessions, msg.Chat.ID)
-		h.reply(msg, "Journal flow canceled.")
-	case "clear":
-		if err := h.journalMgr.Clear(today); err != nil {
-			log.Printf("journal clear error: %v", err)
-			h.reply(msg, "Failed to clear today's journal.")
-			return
-		}
-		delete(h.journalSessions, msg.Chat.ID)
-		h.reply(msg, "Today's journal cleared.")
-	default:
-		h.reply(msg, journalHelpText)
-	}
-}
-
-func (h *Handler) ensureJournalSession(chatID int64) *journal.Session {
-	session, ok := h.journalSessions[chatID]
-	if !ok {
-		session = journal.NewSession()
-		h.journalSessions[chatID] = session
-	}
-	return session
-}
-
 func (h *Handler) handleSync(msg *tgbotapi.Message) {
 	out, err := h.executeSync()
 	if err != nil {
 		log.Printf("sync error: %v", err)
 	}
 	h.reply(msg, out)
-}
-
-func (h *Handler) handleTask(msg *tgbotapi.Message, args string) {
-	args = strings.TrimSpace(args)
-	if args == "" {
-		h.reply(msg, taskHelpText)
-		return
-	}
-
-	parts := strings.Fields(args)
-	sub := parts[0]
-	rest := parts[1:]
-	today := time.Now().Format("2006-01-02")
-
-	switch sub {
-	case taskCmdNew:
-		if len(rest) == 0 {
-			h.reply(msg, taskNewUsageText)
-			return
-		}
-		date, text, ok := parseTaskNewArgs(rest, today)
-		if !ok || text == "" {
-			h.reply(msg, taskNewUsageText)
-			return
-		}
-		if err := h.taskMgr.Add(date, text); err != nil {
-			log.Printf("task add error: %v", err)
-			h.reply(msg, "Failed to add task.")
-			return
-		}
-		h.reply(msg, fmt.Sprintf("Task added for %s.", date))
-
-	case taskCmdView:
-		out, err := h.executeDefaultTaskView(today)
-		if len(rest) > 1 {
-			h.reply(msg, taskViewUsageText)
-			return
-		}
-
-		if len(rest) == 1 {
-			switch {
-			case isMonthArg(rest[0]):
-				out, err = h.executeTaskMonthView(rest[0])
-			case isDateArg(rest[0]):
-				out, err = h.executeTaskView(rest[0])
-			default:
-				h.reply(msg, taskViewUsageText)
-				return
-			}
-		}
-		if err != nil {
-			log.Printf("task view error: %v", err)
-			h.reply(msg, "Failed to view tasks.")
-			return
-		}
-		h.reply(msg, out)
-
-	case taskCmdDone:
-		if len(rest) == 0 {
-			h.reply(msg, taskDoneUsageText)
-			return
-		}
-		date, n, ok := parseTaskNArgs(rest, today)
-		if !ok {
-			h.reply(msg, taskDoneUsageText)
-			return
-		}
-		if err := h.taskMgr.Done(date, n); err != nil {
-			log.Printf("task done error: %v", err)
-			h.reply(msg, fmt.Sprintf("Could not update task: %v", err))
-			return
-		}
-		h.reply(msg, fmt.Sprintf("Task %d toggled.", n))
-
-	case taskCmdEdit:
-		if len(rest) == 0 {
-			h.reply(msg, taskEditUsageText)
-			return
-		}
-		date, n, text, ok := parseTaskEditArgs(rest, today)
-		if !ok || text == "" {
-			h.reply(msg, taskEditUsageText)
-			return
-		}
-		if err := h.taskMgr.Edit(date, n, text); err != nil {
-			log.Printf("task edit error: %v", err)
-			h.reply(msg, fmt.Sprintf("Could not edit task: %v", err))
-			return
-		}
-		h.reply(msg, fmt.Sprintf("Task %d updated.", n))
-
-	case taskCmdDelete:
-		if len(rest) == 0 {
-			h.reply(msg, taskDeleteUsageText)
-			return
-		}
-		date, n, ok := parseTaskNArgs(rest, today)
-		if !ok {
-			h.reply(msg, taskDeleteUsageText)
-			return
-		}
-		if err := h.taskMgr.Delete(date, n); err != nil {
-			log.Printf("task delete error: %v", err)
-			h.reply(msg, fmt.Sprintf("Could not delete task: %v", err))
-			return
-		}
-		h.reply(msg, fmt.Sprintf("Task %d deleted.", n))
-
-	default:
-		h.reply(msg, taskHelpText)
-	}
-}
-
-func (h *Handler) handleCron(msg *tgbotapi.Message, args string) {
-	args = strings.TrimSpace(args)
-	if args == "" {
-		h.reply(msg, cronHelpText)
-		return
-	}
-
-	if args == "view" {
-		h.handleCronView(msg)
-		return
-	}
-
-	if strings.HasPrefix(args, "delete ") {
-		h.handleCronDelete(msg, strings.TrimSpace(strings.TrimPrefix(args, "delete ")))
-		return
-	}
-
-	if strings.HasPrefix(args, "edit ") {
-		h.handleCronEdit(msg, strings.TrimSpace(strings.TrimPrefix(args, "edit ")))
-		return
-	}
-
-	spec, cmd, err := parseCronSpecAndCommand(args)
-	if err != nil {
-		h.reply(msg, cronHelpText)
-		return
-	}
-
-	entry, err := h.cronStore.Add(spec, cmd, msg.Chat.ID)
-	if err != nil {
-		h.reply(msg, formatCronError(err))
-		return
-	}
-
-	h.reply(msg, fmt.Sprintf("Cron added: %s -> %s", entry.Spec, entry.Cmd))
-}
-
-func (h *Handler) handleCronView(msg *tgbotapi.Message) {
-	entries, err := h.cronStore.List()
-	if err != nil {
-		log.Printf("cron view error: %v", err)
-		h.reply(msg, "Failed to view cron entries.")
-		return
-	}
-	if len(entries) == 0 {
-		h.reply(msg, "No cron entries.")
-		return
-	}
-
-	var sb strings.Builder
-	sb.WriteString("Cron entries:\n")
-	for i, entry := range entries {
-		sb.WriteString(fmt.Sprintf("%d. %s -> %s\n", i+1, entry.Spec, entry.Cmd))
-	}
-	h.reply(msg, strings.TrimRight(sb.String(), "\n"))
-}
-
-func (h *Handler) handleCronEdit(msg *tgbotapi.Message, args string) {
-	line, spec, cmd, err := parseCronEditArgs(args)
-	if err != nil {
-		h.reply(msg, cronHelpText)
-		return
-	}
-
-	entry, err := h.cronStore.Edit(line, spec, cmd)
-	if err != nil {
-		h.reply(msg, formatCronError(err))
-		return
-	}
-
-	h.reply(msg, fmt.Sprintf("Cron %d updated: %s -> %s", line, entry.Spec, entry.Cmd))
-}
-
-func (h *Handler) handleCronDelete(msg *tgbotapi.Message, args string) {
-	line, err := strconv.Atoi(strings.TrimSpace(args))
-	if err != nil || line < 1 {
-		h.reply(msg, cronHelpText)
-		return
-	}
-
-	entry, err := h.cronStore.Delete(line)
-	if err != nil {
-		h.reply(msg, formatCronError(err))
-		return
-	}
-
-	h.reply(msg, fmt.Sprintf("Cron %d deleted: %s -> %s", line, entry.Spec, entry.Cmd))
-}
-
-func (h *Handler) StartCronScheduler() {
-	go func() {
-		ticker := time.NewTicker(time.Second)
-		defer ticker.Stop()
-
-		var lastMinute time.Time
-		for range ticker.C {
-			now := time.Now().In(time.Local).Truncate(time.Minute)
-			if now.Equal(lastMinute) {
-				continue
-			}
-			lastMinute = now
-
-			entries, err := h.cronStore.List()
-			if err != nil {
-				log.Printf("cron scheduler list error: %v", err)
-				continue
-			}
-
-			for _, entry := range entries {
-				match, err := cron.Matches(entry.Spec, now)
-				if err != nil {
-					log.Printf("cron scheduler match error spec=%q: %v", entry.Spec, err)
-					continue
-				}
-				if !match {
-					continue
-				}
-
-				out, err := h.executeScheduledCommand(entry.Cmd, entry.ChatID, now)
-				if err != nil {
-					log.Printf("cron scheduler execute error cmd=%q: %v", entry.Cmd, err)
-				}
-				if out == "" {
-					continue
-				}
-				h.sendToChat(entry.ChatID, out)
-			}
-		}
-	}()
-}
-
-func (h *Handler) executeScheduledCommand(cmd string, chatID int64, now time.Time) (string, error) {
-	switch cmd {
-	case "/task view":
-		return h.executeDefaultTaskView(now.Format("2006-01-02"))
-	case "/journal":
-		if h.journalMgr.HasData(now) {
-			return "", nil
-		}
-		session := h.ensureJournalSession(chatID)
-		return "Time to complete your journal. " + session.Prompt(), nil
-	case "/sync":
-		return h.executeSync()
-	default:
-		return "", cron.ErrUnsupportedCmd
-	}
-}
-
-func (h *Handler) executeTaskView(date string) (string, error) {
-	return h.taskMgr.View(date)
-}
-
-func (h *Handler) executeTaskMonthView(month string) (string, error) {
-	return h.taskMgr.ViewMonth(month)
-}
-
-func (h *Handler) executeDefaultTaskView(today string) (string, error) {
-	month := today[:7]
-	monthly, err := h.executeTaskMonthView(month)
-	if err != nil {
-		return "", err
-	}
-
-	daily, err := h.executeTaskView(today)
-	if err != nil {
-		return "", err
-	}
-
-	return monthly + "\n\n" + daily, nil
 }
 
 func (h *Handler) executeSync() (string, error) {
@@ -870,194 +269,11 @@ func (h *Handler) executeSync() (string, error) {
 	return "Synced to GitHub.", nil
 }
 
-func parseCronEditArgs(args string) (line int, spec, cmd string, err error) {
-	parts := strings.Fields(args)
-	if len(parts) < 2 {
-		return 0, "", "", cron.ErrInvalidLine
-	}
-
-	line, err = strconv.Atoi(parts[0])
-	if err != nil || line < 1 {
-		return 0, "", "", cron.ErrInvalidLine
-	}
-
-	spec, cmd, err = parseCronSpecAndCommand(strings.TrimSpace(strings.TrimPrefix(args, parts[0])))
-	if err != nil {
-		return 0, "", "", err
-	}
-	return line, spec, cmd, nil
-}
-
-func parseCronSpecAndCommand(args string) (spec, cmd string, err error) {
-	args = strings.TrimSpace(args)
-	commands := []string{"/task view", "/journal", "/sync"}
-	slices.SortFunc(commands, func(a, b string) int {
-		return len(b) - len(a)
-	})
-
-	for _, candidate := range commands {
-		if !strings.HasSuffix(args, candidate) {
-			continue
-		}
-		spec = strings.TrimSpace(strings.TrimSuffix(args, candidate))
-		if spec == "" {
-			continue
-		}
-		if _, err := cron.NormalizeSpec(spec); err != nil {
-			return "", "", err
-		}
-		return spec, candidate, nil
-	}
-
-	return "", "", cron.ErrUnsupportedCmd
-}
-
-func formatCronError(err error) string {
-	switch {
-	case errors.Is(err, cron.ErrUnsupportedCmd):
-		return "Unsupported cron command. Allowed: /task view, /journal, /sync."
-	case errors.Is(err, cron.ErrEntryNotFound):
-		return "Cron entry not found."
-	case errors.Is(err, cron.ErrMultipleFiles):
-		return "Cron storage must contain only cron.txt."
-	case errors.Is(err, cron.ErrInvalidSpec), errors.Is(err, cron.ErrInvalidLine):
-		return cronHelpText
-	default:
-		return "Failed to update cron entries."
-	}
-}
-
-func isDateArg(s string) bool {
-	if len(s) != 10 {
-		return false
-	}
-	_, err := time.Parse("2006-01-02", s)
-	return err == nil
-}
-
-func isMonthArg(s string) bool {
-	if len(s) != 7 {
-		return false
-	}
-	_, err := time.Parse("2006-01", s)
-	return err == nil
-}
-
-// parseTaskNewArgs parses: [YYYY-MM-DD|YYYY-MM] <text...>
-func parseTaskNewArgs(parts []string, defaultDate string) (date, text string, ok bool) {
-	if len(parts) == 0 {
-		return "", "", false
-	}
-	if isDateArg(parts[0]) || isMonthArg(parts[0]) {
-		if len(parts) < 2 {
-			return "", "", false
-		}
-		return parts[0], strings.Join(parts[1:], " "), true
-	}
-	return defaultDate, strings.Join(parts, " "), true
-}
-
-// parseTaskNArgs parses: [YYYY-MM-DD|YYYY-MM] N
-func parseTaskNArgs(parts []string, defaultDate string) (date string, n int, ok bool) {
-	switch len(parts) {
-	case 1:
-		n64, err := strconv.ParseInt(parts[0], 10, 64)
-		if err != nil || n64 < 1 {
-			return "", 0, false
-		}
-		return defaultDate, int(n64), true
-	case 2:
-		if !isDateArg(parts[0]) && !isMonthArg(parts[0]) {
-			return "", 0, false
-		}
-		n64, err := strconv.ParseInt(parts[1], 10, 64)
-		if err != nil || n64 < 1 {
-			return "", 0, false
-		}
-		return parts[0], int(n64), true
-	default:
-		return "", 0, false
-	}
-}
-
-// parseTaskEditArgs parses: [YYYY-MM-DD|YYYY-MM] N <text...>
-func parseTaskEditArgs(parts []string, defaultDate string) (date string, n int, text string, ok bool) {
-	if len(parts) < 2 {
-		return "", 0, "", false
-	}
-	if isDateArg(parts[0]) || isMonthArg(parts[0]) {
-		if len(parts) < 3 {
-			return "", 0, "", false
-		}
-		n64, err := strconv.ParseInt(parts[1], 10, 64)
-		if err != nil || n64 < 1 {
-			return "", 0, "", false
-		}
-		return parts[0], int(n64), strings.Join(parts[2:], " "), true
-	}
-	n64, err := strconv.ParseInt(parts[0], 10, 64)
-	if err != nil || n64 < 1 {
-		return "", 0, "", false
-	}
-	return defaultDate, int(n64), strings.Join(parts[1:], " "), true
-}
-
 func (h *Handler) reply(msg *tgbotapi.Message, text string) {
 	if msg == nil {
 		return
 	}
 	h.sendToChat(msg.Chat.ID, text, msg.MessageID)
-}
-
-func (h *Handler) replyJournalPrompt(msg *tgbotapi.Message, session *journal.Session) {
-	if msg == nil {
-		return
-	}
-	h.sendJournalPrompt(msg.Chat.ID, session, msg.MessageID)
-}
-
-func (h *Handler) sendJournalPrompt(chatID int64, session *journal.Session, replyIDs ...int) {
-	if h.bot == nil {
-		return
-	}
-
-	message := tgbotapi.NewMessage(chatID, session.Prompt())
-	if len(replyIDs) > 0 {
-		message.ReplyToMessageID = replyIDs[0]
-	}
-
-	switch session.Step() {
-	case journal.StepMoreHighlights:
-		message.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("More highlights", "journal:more_highlights"),
-				tgbotapi.NewInlineKeyboardButtonData("No more", "journal:no_more_highlights"),
-			),
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("Cancel", "journal:cancel"),
-			),
-		)
-	case journal.StepMoreBlockers:
-		message.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("More blockers", "journal:more_blockers"),
-				tgbotapi.NewInlineKeyboardButtonData("No more", "journal:no_more_blockers"),
-			),
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("Cancel", "journal:cancel"),
-			),
-		)
-	default:
-		message.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("Cancel", "journal:cancel"),
-			),
-		)
-	}
-
-	if _, err := h.bot.Send(message); err != nil {
-		log.Printf("send journal prompt error: %v", err)
-	}
 }
 
 func (h *Handler) sendToChat(chatID int64, text string, replyIDs ...int) {

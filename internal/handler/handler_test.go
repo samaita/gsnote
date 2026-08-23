@@ -1,14 +1,10 @@
 package handler
 
 import (
-	"errors"
 	"testing"
-	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
-	"github.com/axonigma/gsnote/internal/cron"
-	"github.com/axonigma/gsnote/internal/journal"
 	"github.com/axonigma/gsnote/internal/voice"
 )
 
@@ -34,8 +30,12 @@ func (f *fakeVoiceSvc) List() (string, error) {
 	return "Recent voice captures:\n  00001", nil
 }
 
+func newTestHandler(t *testing.T) *Handler {
+	return New(nil, t.TempDir(), t.TempDir(), "", "", "", nil)
+}
+
 func TestHandleRoutesVoiceMessageToProcessor(t *testing.T) {
-	h := New(nil, t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir(), "", "", "", nil)
+	h := newTestHandler(t)
 	svc := &fakeVoiceSvc{}
 	h.StartVoiceProcessor(svc)
 
@@ -53,7 +53,7 @@ func TestHandleRoutesVoiceMessageToProcessor(t *testing.T) {
 }
 
 func TestHandleVoiceMessageWithoutProcessorDoesNotPanic(t *testing.T) {
-	h := New(nil, t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir(), "", "", "", nil)
+	h := newTestHandler(t)
 
 	msg := &tgbotapi.Message{
 		MessageID: 7,
@@ -65,7 +65,7 @@ func TestHandleVoiceMessageWithoutProcessorDoesNotPanic(t *testing.T) {
 }
 
 func TestHandleTextDoesNotRouteToVoiceProcessor(t *testing.T) {
-	h := New(nil, t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir(), "", "", "", nil)
+	h := newTestHandler(t)
 	svc := &fakeVoiceSvc{}
 	h.StartVoiceProcessor(svc)
 
@@ -83,7 +83,7 @@ func TestHandleTextDoesNotRouteToVoiceProcessor(t *testing.T) {
 }
 
 func TestHandleVoiceDeleteCommand(t *testing.T) {
-	h := New(nil, t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir(), "", "", "", nil)
+	h := newTestHandler(t)
 	svc := &fakeVoiceSvc{deleteOut: "Deleted voice 00001."}
 	h.StartVoiceProcessor(svc)
 
@@ -101,7 +101,7 @@ func TestHandleVoiceDeleteCommand(t *testing.T) {
 }
 
 func TestHandleVoiceDeleteInvalidID(t *testing.T) {
-	h := New(nil, t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir(), "", "", "", nil)
+	h := newTestHandler(t)
 	svc := &fakeVoiceSvc{deleteErr: voice.ErrInvalidVoiceID}
 	h.StartVoiceProcessor(svc)
 
@@ -119,7 +119,7 @@ func TestHandleVoiceDeleteInvalidID(t *testing.T) {
 }
 
 func TestHandleVoiceListCommand(t *testing.T) {
-	h := New(nil, t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir(), "", "", "", nil)
+	h := newTestHandler(t)
 	svc := &fakeVoiceSvc{}
 	h.StartVoiceProcessor(svc)
 
@@ -137,7 +137,7 @@ func TestHandleVoiceListCommand(t *testing.T) {
 }
 
 func TestHandleVoiceHelpDoesNotDelete(t *testing.T) {
-	h := New(nil, t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir(), "", "", "", nil)
+	h := newTestHandler(t)
 	svc := &fakeVoiceSvc{}
 	h.StartVoiceProcessor(svc)
 
@@ -153,157 +153,5 @@ func TestHandleVoiceHelpDoesNotDelete(t *testing.T) {
 
 	if svc.deleteID != "" || svc.listCalled {
 		t.Fatalf("help/unknown voice commands must not trigger list or delete")
-	}
-}
-
-
-func TestParseCronSpecAndCommandAcceptsDailyTaskView(t *testing.T) {
-	spec, cmd, err := parseCronSpecAndCommand("06:00 /task view")
-	if err != nil {
-		t.Fatalf("parse cron create args: %v", err)
-	}
-	if spec != "06:00" {
-		t.Fatalf("unexpected spec: %q", spec)
-	}
-	if cmd != "/task view" {
-		t.Fatalf("unexpected command: %q", cmd)
-	}
-}
-
-func TestParseCronEditArgsAcceptsCronSyntax(t *testing.T) {
-	line, spec, cmd, err := parseCronEditArgs("2 */5 * * * * /sync")
-	if err != nil {
-		t.Fatalf("parse cron edit args: %v", err)
-	}
-	if line != 2 || spec != "*/5 * * * *" || cmd != "/sync" {
-		t.Fatalf("unexpected parse result: line=%d spec=%q cmd=%q", line, spec, cmd)
-	}
-}
-
-func TestParseCronSpecAndCommandRejectsUnsupportedCommand(t *testing.T) {
-	if _, _, err := parseCronSpecAndCommand("06:00 /note https://example.com desc"); !errors.Is(err, cron.ErrUnsupportedCmd) {
-		t.Fatalf("expected unsupported command error, got %v", err)
-	}
-}
-
-func TestParseCronSpecAndCommandAcceptsJournal(t *testing.T) {
-	spec, cmd, err := parseCronSpecAndCommand("23:00 /journal")
-	if err != nil {
-		t.Fatalf("parse cron journal args: %v", err)
-	}
-	if spec != "23:00" {
-		t.Fatalf("unexpected spec: %q", spec)
-	}
-	if cmd != "/journal" {
-		t.Fatalf("unexpected command: %q", cmd)
-	}
-}
-
-func TestExecuteScheduledCommandTaskViewUsesToday(t *testing.T) {
-	root := t.TempDir()
-	h := New(nil, root, root, root, root, root, root, root, "", "", "", nil)
-
-	today := "2026-04-25"
-	if err := h.taskMgr.Add(today, "Review cron output"); err != nil {
-		t.Fatalf("add task: %v", err)
-	}
-
-	out, err := h.executeTaskView(today)
-	if err != nil {
-		t.Fatalf("execute task view: %v", err)
-	}
-	expected := "Tasks 2026-04-25:\n1. [ ] Review cron output"
-	if out != expected {
-		t.Fatalf("unexpected output:\n%s", out)
-	}
-}
-
-func TestExecuteDefaultTaskViewShowsMonthAndToday(t *testing.T) {
-	root := t.TempDir()
-	h := New(nil, root, root, root, root, root, root, root, "", "", "", nil)
-
-	if err := h.taskMgr.Add("2026-04", "Monthly only"); err != nil {
-		t.Fatalf("add monthly task: %v", err)
-	}
-	if err := h.taskMgr.Add("2026-04-25", "Today task"); err != nil {
-		t.Fatalf("add today task: %v", err)
-	}
-
-	out, err := h.executeDefaultTaskView("2026-04-25")
-	if err != nil {
-		t.Fatalf("execute default task view: %v", err)
-	}
-
-	expected := "Tasks 2026-04:\n1. [ ] Monthly only\n\nTasks 2026-04-25:\n1. [ ] Today task"
-	if out != expected {
-		t.Fatalf("unexpected output:\n%s", out)
-	}
-}
-
-func TestExecuteScheduledJournalPromptsOnlyWhenMissing(t *testing.T) {
-	root := t.TempDir()
-	h := New(nil, root, root, root, root, root, root, root, "", "", "", nil)
-	loc := time.FixedZone("GMT+7", 7*60*60)
-	now := time.Date(2026, 6, 3, 23, 0, 0, 0, loc)
-
-	out, err := h.executeScheduledCommand("/journal", 123, now)
-	if err != nil {
-		t.Fatalf("execute scheduled journal: %v", err)
-	}
-	if out != "Time to complete your journal. What happened today?" {
-		t.Fatalf("unexpected missing journal prompt: %q", out)
-	}
-
-	if err := h.journalMgr.Write(now, journal.Entry{Summary: "Done", Highlights: []string{"Win"}, Blockers: []string{"None"}, Closing: "Close"}); err != nil {
-		t.Fatalf("write journal: %v", err)
-	}
-	out, err = h.executeScheduledCommand("/journal", 123, now)
-	if err != nil {
-		t.Fatalf("execute scheduled journal with data: %v", err)
-	}
-	if out != "" {
-		t.Fatalf("expected no prompt when journal exists, got %q", out)
-	}
-}
-
-func TestIsMonthArg(t *testing.T) {
-	if !isMonthArg("2026-04") {
-		t.Fatalf("expected valid month")
-	}
-	if isMonthArg("2026-04-25") {
-		t.Fatalf("did not expect full date to be treated as month")
-	}
-	if isMonthArg("2026-13") {
-		t.Fatalf("did not expect invalid month")
-	}
-}
-
-func TestParseTaskDeleteArgsAcceptsMonth(t *testing.T) {
-	date, n, ok := parseTaskNArgs([]string{"2026-04", "2"}, "2026-04-25")
-	if !ok {
-		t.Fatalf("expected parse to succeed")
-	}
-	if date != "2026-04" || n != 2 {
-		t.Fatalf("unexpected parse result: date=%q n=%d", date, n)
-	}
-}
-
-func TestParseTaskEditArgsAcceptsMonth(t *testing.T) {
-	date, n, text, ok := parseTaskEditArgs([]string{"2026-04", "2", "Update", "roadmap"}, "2026-04-25")
-	if !ok {
-		t.Fatalf("expected parse to succeed")
-	}
-	if date != "2026-04" || n != 2 || text != "Update roadmap" {
-		t.Fatalf("unexpected parse result: date=%q n=%d text=%q", date, n, text)
-	}
-}
-
-func TestParseTaskNewArgsAcceptsMonth(t *testing.T) {
-	date, text, ok := parseTaskNewArgs([]string{"2026-04", "Plan", "review"}, "2026-04-25")
-	if !ok {
-		t.Fatalf("expected parse to succeed")
-	}
-	if date != "2026-04" || text != "Plan review" {
-		t.Fatalf("unexpected parse result: date=%q text=%q", date, text)
 	}
 }
