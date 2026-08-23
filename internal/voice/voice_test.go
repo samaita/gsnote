@@ -139,6 +139,15 @@ func TestProcessVoiceMessageSuccess(t *testing.T) {
 			t.Fatalf("markdown missing %q:\n%s", want, md)
 		}
 	}
+
+	rawPath := filepath.Join(voicesRoot, "00001.md")
+	raw, err := os.ReadFile(rawPath)
+	if err != nil {
+		t.Fatalf("read raw transcript: %v", err)
+	}
+	if !strings.Contains(string(raw), "Gue kepikiran Address Quality") {
+		t.Fatalf("raw transcript missing transcript text:\n%s", raw)
+	}
 }
 
 func TestProcessVoiceMessageDownloadFailure(t *testing.T) {
@@ -202,6 +211,9 @@ func TestProcessVoiceMessageLLMFailureKeepsAudio(t *testing.T) {
 	if len(audio) != 1 || !strings.HasPrefix(audio[0], "00001-") {
 		t.Fatalf("audio must survive LLM failure, got %v", audio)
 	}
+	if _, err := os.Stat(filepath.Join(voicesRoot, "00001.md")); err != nil {
+		t.Fatalf("raw transcript must survive LLM failure: %v", err)
+	}
 }
 
 func TestProcessVoiceMessageInvalidLLMResultKeepsAudio(t *testing.T) {
@@ -224,6 +236,9 @@ func TestProcessVoiceMessageInvalidLLMResultKeepsAudio(t *testing.T) {
 	audio := listAudioFiles(t, voicesRoot)
 	if len(audio) != 1 {
 		t.Fatalf("audio must be kept on invalid LLM result, got %v", audio)
+	}
+	if _, err := os.Stat(filepath.Join(voicesRoot, "00001.md")); err != nil {
+		t.Fatalf("raw transcript must survive invalid LLM result: %v", err)
 	}
 }
 
@@ -251,6 +266,9 @@ func TestProcessVoiceMessageMarkdownFailureKeepsAudio(t *testing.T) {
 	audio := listAudioFiles(t, voicesRoot)
 	if len(audio) != 1 {
 		t.Fatalf("audio must be kept on markdown failure, got %v", audio)
+	}
+	if _, err := os.Stat(filepath.Join(voicesRoot, "00001.md")); err != nil {
+		t.Fatalf("raw transcript must survive markdown failure: %v", err)
 	}
 }
 
@@ -282,17 +300,18 @@ func TestProcessVoiceMessageIdempotent(t *testing.T) {
 			mdCount++
 		}
 	}
-	if mdCount != 1 {
-		t.Fatalf("expected one markdown file, got %d", mdCount)
+	if mdCount != 2 {
+		t.Fatalf("expected two markdown files (transcript + note), got %d", mdCount)
 	}
 }
 
-func TestDeleteByIDExistingDeletesAudioAndMarkdown(t *testing.T) {
+func TestDeleteByIDExistingDeletesAudioMarkdownAndTranscript(t *testing.T) {
 	root := t.TempDir()
 	audio := filepath.Join(root, "00001-20260823092015.ogg")
 	md := filepath.Join(root, "00001-20260823.md")
+	transcript := filepath.Join(root, "00001.md")
 	other := filepath.Join(root, "00002-20260823.md")
-	for _, path := range []string{audio, md, other} {
+	for _, path := range []string{audio, md, transcript, other} {
 		if err := os.WriteFile(path, []byte("x"), 0644); err != nil {
 			t.Fatalf("write %s: %v", path, err)
 		}
@@ -305,7 +324,7 @@ func TestDeleteByIDExistingDeletesAudioAndMarkdown(t *testing.T) {
 	if out != "Deleted voice 00001." {
 		t.Fatalf("unexpected output: %q", out)
 	}
-	for _, path := range []string{audio, md} {
+	for _, path := range []string{audio, md, transcript} {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Fatalf("expected %s deleted", path)
 		}
@@ -377,6 +396,7 @@ func TestDeleteByIDAmbiguousDoesNotDelete(t *testing.T) {
 	for _, name := range []string{
 		"00001-20260823092015.ogg",
 		"00001-20260823.md",
+		"00001.md",
 		"00001-extra.bak",
 	} {
 		if err := os.WriteFile(filepath.Join(root, name), []byte("x"), 0644); err != nil {
@@ -391,7 +411,7 @@ func TestDeleteByIDAmbiguousDoesNotDelete(t *testing.T) {
 	if out != "Unable to delete voice 00001: multiple matching files found." {
 		t.Fatalf("unexpected output: %q", out)
 	}
-	for _, name := range []string{"00001-20260823092015.ogg", "00001-20260823.md", "00001-extra.bak"} {
+	for _, name := range []string{"00001-20260823092015.ogg", "00001-20260823.md", "00001.md", "00001-extra.bak"} {
 		if _, err := os.Stat(filepath.Join(root, name)); err != nil {
 			t.Fatalf("ambiguous delete must not remove %s: %v", name, err)
 		}
@@ -486,6 +506,23 @@ func TestWriteMarkdownIncludesAudio(t *testing.T) {
 	}
 }
 
+func TestWriteRawTranscript(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "00001.md")
+	if err := WriteRawTranscript(path, "Gue kepikiran Address Quality"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	md := string(data)
+	for _, want := range []string{"# Transcript", "Gue kepikiran Address Quality"} {
+		if !strings.Contains(md, want) {
+			t.Errorf("raw transcript missing %q", want)
+		}
+	}
+}
+
 func TestProcessorDeleteAndList(t *testing.T) {
 	root := t.TempDir()
 	tr := fakeTranscriber{fn: func(path string) (string, error) { return "t", nil }}
@@ -511,6 +548,9 @@ func TestProcessorDeleteAndList(t *testing.T) {
 	}
 	if len(listAudioFiles(t, root)) != 0 {
 		t.Fatalf("audio files must be gone after delete")
+	}
+	if _, err := os.Stat(filepath.Join(root, "00001.md")); !os.IsNotExist(err) {
+		t.Fatalf("raw transcript must be gone after delete")
 	}
 	if _, err := os.Stat(filepath.Join(root, fmt.Sprintf("00001-%s.md", time.Now().In(time.Local).Format("20060102")))); !os.IsNotExist(err) {
 		t.Fatalf("markdown must be gone after delete")

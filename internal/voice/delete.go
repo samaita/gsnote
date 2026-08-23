@@ -26,10 +26,10 @@ func ValidVoiceID(id string) bool {
 }
 
 // DeleteByID removes all files belonging to a voice capture identified by its ID.
-// Files are matched by basename prefix "<id>-" so both the audio file and the
-// markdown file are removed. The ID is validated before any filesystem access.
-// A capture normally consists of two files; more matches are treated as
-// ambiguous and nothing is deleted.
+// Files are matched by basename prefix "<id>-" (audio and note markdown) or
+// "<id>." (raw transcript markdown) so the whole capture is removed. The ID is
+// validated before any filesystem access. A capture normally consists of three
+// files; more matches are treated as ambiguous and nothing is deleted.
 func DeleteByID(voicesRoot, voiceID string) (string, error) {
 	id := strings.TrimSpace(voiceID)
 	if !ValidVoiceID(id) {
@@ -46,7 +46,7 @@ func DeleteByID(voicesRoot, voiceID string) (string, error) {
 		if e.IsDir() {
 			continue
 		}
-		if strings.HasPrefix(e.Name(), id+"-") {
+		if strings.HasPrefix(e.Name(), id+"-") || strings.HasPrefix(e.Name(), id+".") {
 			matches = append(matches, e.Name())
 		}
 	}
@@ -54,7 +54,7 @@ func DeleteByID(voicesRoot, voiceID string) (string, error) {
 	if len(matches) == 0 {
 		return "Voice " + id + " not found.", nil
 	}
-	if len(matches) > 2 {
+	if len(matches) > 3 {
 		return "Unable to delete voice " + id + ": multiple matching files found.", nil
 	}
 

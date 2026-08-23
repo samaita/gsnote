@@ -182,10 +182,11 @@ The flow is:
 Telegram voice → download audio → ffmpeg → whisper-cli (local) → LLM summary + classification → saved in VOICES_ROOT
 ```
 
-The original audio and a markdown file are saved in `VOICES_ROOT` (default `<SYNC_ROOT>/Voices`) with a shared sequential voice ID:
+The original audio, a raw transcript, and a processed markdown note are saved in `VOICES_ROOT` (default `<SYNC_ROOT>/Voices`) with a shared sequential voice ID:
 
 ```text
 Voices/00001-20260823-xxxx.ogg
+Voices/00001.md
 Voices/00001-20260823.md
 ```
 
@@ -200,7 +201,7 @@ Address Quality sebagai API Audit
 Manage captures with:
 
 - `/voice list` — list recent voice captures
-- `/voice delete 00001` — delete the audio and markdown for a capture
+- `/voice delete 00001` — delete the audio, transcript, and markdown for a capture
 - `/voice help` — show voice usage
 
 If STT or LLM processing fails, the original audio is kept so it can be retried later. Duplicate Telegram deliveries do not create duplicate captures.

@@ -59,3 +59,9 @@ audio: %s
 func DefaultMDFilename(voiceID string, date time.Time) string {
 	return fmt.Sprintf("%s-%s.md", voiceID, date.Format("20060102"))
 }
+
+// WriteRawTranscript writes the raw transcript to a standalone markdown file.
+func WriteRawTranscript(path, transcript string) error {
+	content := fmt.Sprintf("# Transcript\n\n%s\n", transcript)
+	return os.WriteFile(path, []byte(content), 0644)
+}

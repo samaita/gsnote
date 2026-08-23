@@ -99,6 +99,15 @@ func (p *Processor) ProcessVoiceMessage(msg *tgbotapi.Message) {
 		return
 	}
 
+	// Persist the raw transcript immediately so it survives any later LLM
+	// or markdown failure.
+	transcriptPath := filepath.Join(p.voicesRoot, voiceID+".md")
+	if err := WriteRawTranscript(transcriptPath, rawTranscript); err != nil {
+		log.Printf("voice transcript save error: %v", err)
+		p.send(msg, "Voice received. Transcript could not be saved — audio saved for retry.")
+		return
+	}
+
 	info, err := p.llm.Process(rawTranscript)
 	if err != nil {
 		log.Printf("voice LLM error: %v", err)
