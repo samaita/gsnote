@@ -1,10 +1,10 @@
 # gsnote
 
-A low-friction Telegram bot for capturing habits, tasks, ideas, journal entries, and notes in markdown files compatible with Obsidian.
+A low-friction Telegram bot for capturing habits, tasks, ideas, journal entries, voice notes, and notes in markdown files compatible with Obsidian.
 
 ## How it works
 
-Send commands to your Telegram bot to log habits, manage tasks, capture ideas, complete guided journal entries, save notes, sync your vault, and schedule supported commands.
+Send commands to your Telegram bot to log habits, manage tasks, capture ideas, complete guided journal entries, save notes, capture voice notes, sync your vault, and schedule supported commands.
 
 Run `/help` in Telegram to see the latest supported commands and usage. The command list changes over time, so the bot's built-in help is the source of truth.
 
@@ -277,3 +277,9 @@ Run `bash -n install.sh uninstall.sh`, `go test ./...`, and `go build ./...` bef
 - GitHub credentials for `/sync`:
 - `GSNOTE_GITHUB_TOKEN` with access to the remote repository
 - Git author identity via `GSNOTE_GIT_AUTHOR_NAME` and `GSNOTE_GIT_AUTHOR_EMAIL`
+
+For voice notes (optional, only if you use them):
+
+- `ffmpeg` on `PATH` (or `FFMPEG_BIN`) to convert Telegram's OGG voice notes to WAV
+- A local whisper.cpp `whisper-cli` binary and a ggml model — see [Voice notes](#voice-notes) for setup
+- An OpenAI-compatible `LLM_API_KEY`
