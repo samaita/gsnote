@@ -6,10 +6,16 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 )
 
-// LLM processes a transcript through a language model.
-type LLM struct {
+// NoteLLM processes a transcript into structured note information.
+type NoteLLM interface {
+	Process(transcript string) (*VoiceInfo, error)
+}
+
+// OpenAILLM processes a transcript through an OpenAI-compatible chat model.
+type OpenAILLM struct {
 	APIKey  string
 	BaseURL string
 	Model   string
@@ -44,7 +50,7 @@ Your job:
 )
 
 // Process sends the transcript to the LLM and returns structured voice info.
-func (l *LLM) Process(transcript string) (*VoiceInfo, error) {
+func (l *OpenAILLM) Process(transcript string) (*VoiceInfo, error) {
 	payload := map[string]interface{}{
 		"model": l.Model,
 		"messages": []map[string]string{
@@ -98,4 +104,39 @@ func (l *LLM) Process(transcript string) (*VoiceInfo, error) {
 		return nil, fmt.Errorf("parse LLM JSON: %w", err)
 	}
 	return &info, nil
+}
+
+var validVoiceTypes = map[string]bool{
+	"idea":    true,
+	"task":    true,
+	"insight": true,
+	"pain":    true,
+	"note":    true,
+}
+
+// validateVoiceInfo checks that the LLM returned a usable, safe result.
+// The LLM must never control physical file locations, so category/project
+// and tags are rejected if they contain path separators.
+func validateVoiceInfo(info *VoiceInfo) error {
+	if info == nil {
+		return fmt.Errorf("nil LLM result")
+	}
+	if strings.TrimSpace(info.Title) == "" {
+		return fmt.Errorf("missing title")
+	}
+	if strings.TrimSpace(info.Summary) == "" {
+		return fmt.Errorf("missing summary")
+	}
+	if !validVoiceTypes[strings.TrimSpace(info.Type)] {
+		return fmt.Errorf("invalid type %q", info.Type)
+	}
+	if strings.ContainsAny(info.Category, `/\`) || strings.ContainsAny(info.Project, `/\`) {
+		return fmt.Errorf("category or project contains a path separator")
+	}
+	for _, tag := range info.Tags {
+		if strings.ContainsAny(tag, `/\`) {
+			return fmt.Errorf("tag contains a path separator: %q", tag)
+		}
+	}
+	return nil
 }

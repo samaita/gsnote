@@ -11,14 +11,19 @@ import (
 )
 
 // Transcriber converts audio files to text.
-type Transcriber struct {
-	APIKey string
+type Transcriber interface {
+	Transcribe(audioPath string) (string, error)
+}
+
+// OpenAITranscriber sends audio to the OpenAI-compatible transcription API.
+type OpenAITranscriber struct {
+	APIKey  string
 	BaseURL string
-	Model  string
+	Model   string
 }
 
 // Transcribe sends audio to the STT API and returns the transcript.
-func (t *Transcriber) Transcribe(audioPath string) (string, error) {
+func (t *OpenAITranscriber) Transcribe(audioPath string) (string, error) {
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 

@@ -15,25 +15,30 @@ import (
 // Processor orchestrates the full voice-to-note pipeline.
 type Processor struct {
 	bot         *tgbotapi.BotAPI
-	transcriber *Transcriber
-	llm         *LLM
+	transcriber Transcriber
+	llm         NoteLLM
 	idMgr       *IDManager
 	voicesRoot  string
 	syncRoot    string
+	fetchAudio  func(msg *tgbotapi.Message) (tmpPath, ext string, err error)
+	send        func(msg *tgbotapi.Message, text string)
 	lastMsgSeq  map[int64]bool // messageID -> processed
 }
 
 // NewProcessor creates a new Processor instance.
 func NewProcessor(bot *tgbotapi.BotAPI, sttKey, sttBaseURL, sttModel, llmKey, llmBaseURL, llmModel string, voicesRoot, syncRoot string) *Processor {
-	return &Processor{
+	p := &Processor{
 		bot:         bot,
-		transcriber: &Transcriber{APIKey: sttKey, BaseURL: sttBaseURL, Model: sttModel},
-		llm:         &LLM{APIKey: llmKey, BaseURL: llmBaseURL, Model: llmModel},
+		transcriber: &OpenAITranscriber{APIKey: sttKey, BaseURL: sttBaseURL, Model: sttModel},
+		llm:         &OpenAILLM{APIKey: llmKey, BaseURL: llmBaseURL, Model: llmModel},
 		idMgr:       NewIDManager(voicesRoot),
 		voicesRoot:  voicesRoot,
 		syncRoot:    syncRoot,
 		lastMsgSeq:  make(map[int64]bool),
 	}
+	p.fetchAudio = p.downloadVoice
+	p.send = p.sendToChat
+	return p
 }
 
 // ProcessVoiceMessage handles the full voice processing pipeline.
@@ -42,7 +47,7 @@ func (p *Processor) ProcessVoiceMessage(msg *tgbotapi.Message) {
 		return
 	}
 
-	// Dedup by message ID (Telegram can retry updates)
+	// Dedup by message ID (Telegram can redeliver updates)
 	msgID := int64(msg.MessageID)
 	if p.lastMsgSeq[msgID] {
 		log.Printf("voice: duplicate msg %d, skipping", msgID)
@@ -60,10 +65,10 @@ func (p *Processor) ProcessVoiceMessage(msg *tgbotapi.Message) {
 		}
 	}
 
-	voicePath, ext, err := p.downloadVoice(msg)
+	voicePath, ext, err := p.fetchAudio(msg)
 	if err != nil {
 		log.Printf("voice download error: %v", err)
-		p.reply(msg, "Failed to download audio.")
+		p.send(msg, "Failed to download audio.")
 		return
 	}
 	defer os.Remove(voicePath)
@@ -71,31 +76,39 @@ func (p *Processor) ProcessVoiceMessage(msg *tgbotapi.Message) {
 	voiceID, err := p.idMgr.Next()
 	if err != nil {
 		log.Printf("voice ID error: %v", err)
-		p.reply(msg, "Failed to generate ID.")
+		p.send(msg, "Failed to generate ID.")
 		return
 	}
 
+	// Persist the original audio before any STT/LLM work so a later
+	// failure never destroys the recording.
 	date := time.Now().In(time.Local)
 
 	audioFilename := fmt.Sprintf("%s-%s%s", voiceID, date.Format("20060102150405"), ext)
 	audioPath := filepath.Join(p.voicesRoot, audioFilename)
-	if err := os.Rename(voicePath, audioPath); err != nil {
-		log.Printf("voice rename error: %v", err)
-		p.reply(msg, "Failed to save audio file.")
+	if err := copyFile(voicePath, audioPath); err != nil {
+		log.Printf("voice save error: %v", err)
+		p.send(msg, "Failed to save audio file.")
 		return
 	}
 
 	rawTranscript, err := p.transcriber.Transcribe(audioPath)
 	if err != nil {
 		log.Printf("voice STT error: %v", err)
-		p.reply(msg, "Voice received. STT failed — audio saved for retry.")
+		p.send(msg, "Voice received. STT failed — audio saved for retry.")
 		return
 	}
 
 	info, err := p.llm.Process(rawTranscript)
 	if err != nil {
 		log.Printf("voice LLM error: %v", err)
-		p.reply(msg, "Voice received. LLM failed — audio saved for retry.")
+		p.send(msg, "Voice received. LLM failed — audio saved for retry.")
+		return
+	}
+
+	if err := validateVoiceInfo(info); err != nil {
+		log.Printf("voice LLM invalid result: %v", err)
+		p.send(msg, "Voice received. LLM returned an invalid result — audio saved for retry.")
 		return
 	}
 
@@ -110,17 +123,28 @@ func (p *Processor) ProcessVoiceMessage(msg *tgbotapi.Message) {
 		Category:   info.Category,
 		Project:    info.Project,
 		Tags:       info.Tags,
+		Audio:      audioFilename,
 	}
 
 	mdFilename := DefaultMDFilename(voiceID, date)
 	mdPath := filepath.Join(p.voicesRoot, mdFilename)
 	if err := WriteMarkdown(mdPath, meta); err != nil {
 		log.Printf("voice markdown write error: %v", err)
-		p.reply(msg, fmt.Sprintf("Saved %s\n%v", voiceID, info.Title))
+		p.send(msg, fmt.Sprintf("Voice received. Audio saved as %s, but the note file could not be written.", voiceID))
 		return
 	}
 
-	p.reply(msg, fmt.Sprintf("Saved %s\n\n%s", voiceID, info.Title))
+	p.send(msg, fmt.Sprintf("Saved %s\n\n%s", voiceID, info.Title))
+}
+
+// Delete removes the voice capture files identified by voiceID.
+func (p *Processor) Delete(voiceID string) (string, error) {
+	return DeleteByID(p.voicesRoot, voiceID)
+}
+
+// List returns a human-readable list of recent voice captures.
+func (p *Processor) List() (string, error) {
+	return ListVoices(p.voicesRoot)
 }
 
 // ListVoices returns the list of voice captures in the directory.
@@ -160,13 +184,14 @@ func (p *Processor) downloadVoice(msg *tgbotapi.Message) (string, string, error)
 	var remoteID string
 	ext := ".ogg"
 
-	if msg.Audio != nil {
+	switch {
+	case msg.Voice != nil:
+		remoteID = msg.Voice.FileID
+	case msg.Audio != nil:
 		remoteID = msg.Audio.FileID
-		ext = ".ogg"
-	} else if msg.Document != nil && msg.Document.MimeType == "audio/ogg" {
+	case msg.Document != nil && msg.Document.MimeType == "audio/ogg":
 		remoteID = msg.Document.FileID
-		ext = ".ogg"
-	} else {
+	default:
 		return "", "", fmt.Errorf("no audio found in message")
 	}
 
@@ -203,7 +228,7 @@ func (p *Processor) downloadVoice(msg *tgbotapi.Message) (string, string, error)
 	return tmpFile.Name(), ext, nil
 }
 
-func (p *Processor) reply(msg *tgbotapi.Message, text string) {
+func (p *Processor) sendToChat(msg *tgbotapi.Message, text string) {
 	if msg == nil || p.bot == nil {
 		return
 	}
@@ -212,6 +237,25 @@ func (p *Processor) reply(msg *tgbotapi.Message, text string) {
 	if _, err := p.bot.Send(reply); err != nil {
 		log.Printf("send voice reply error: %v", err)
 	}
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		os.Remove(dst)
+		return err
+	}
+	return out.Close()
 }
 
 func findDashIdx(s string) int {

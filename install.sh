@@ -36,6 +36,7 @@ if [ ! -f "$CONFIG_FILE" ]; then
     mkdir -p "$NOTES_ROOT"
     mkdir -p "$JOURNALS_ROOT"
     mkdir -p "$CRON_ROOT"
+    mkdir -p "$SYNC_ROOT/Voices"
 
     quote() { local v="$1"; [[ "$v" == \"*\" ]] && echo "$v" || echo "\"$v\""; }
 
@@ -51,6 +52,7 @@ IDEAS_ROOT=$(quote "$SYNC_ROOT/Ideas")
 NOTES_ROOT=$(quote "$NOTES_ROOT")
 JOURNALS_ROOT=$(quote "$JOURNALS_ROOT")
 CRON_ROOT=$(quote "$CRON_ROOT")
+VOICES_ROOT=$(quote "$SYNC_ROOT/Voices")
 WHITELIST_TELEGRAM_ID=$(quote "$WHITELIST_ID")
 TIMEZONE=$(quote "$TIMEZONE")
 EOF
@@ -63,6 +65,7 @@ EOF
     echo "Notes folder:        $NOTES_ROOT"
     echo "Journals folder:     $JOURNALS_ROOT"
     echo "Cron folder:         $CRON_ROOT"
+    echo "Voices folder:       $SYNC_ROOT/Voices"
     echo "Timezone:            $TIMEZONE"
     echo ""
     echo "You can reconfigure anytime by editing: $CONFIG_FILE"
@@ -75,6 +78,14 @@ else
         quote() { local v="$1"; [[ "$v" == \"*\" ]] && echo "$v" || echo "\"$v\""; }
         printf '\nJOURNALS_ROOT=%s\n' "$(quote "$JOURNALS_ROOT")" >> "$CONFIG_FILE"
         echo "Added JOURNALS_ROOT to existing config: $JOURNALS_ROOT"
+    fi
+    if ! grep -q '^VOICES_ROOT=' "$CONFIG_FILE"; then
+        SYNC_ROOT_EXISTING=$(grep '^SYNC_ROOT=' "$CONFIG_FILE" | head -n1 | cut -d= -f2- | sed 's/^"//; s/"$//')
+        VOICES_ROOT="${SYNC_ROOT_EXISTING:-$HOME/vault}/Voices"
+        mkdir -p "$VOICES_ROOT"
+        quote() { local v="$1"; [[ "$v" == \"*\" ]] && echo "$v" || echo "\"$v\""; }
+        printf '\nVOICES_ROOT=%s\n' "$(quote "$VOICES_ROOT")" >> "$CONFIG_FILE"
+        echo "Added VOICES_ROOT to existing config: $VOICES_ROOT"
     fi
 fi
 

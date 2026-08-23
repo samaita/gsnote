@@ -20,6 +20,7 @@ import (
 	"github.com/axonigma/gsnote/internal/parser"
 	"github.com/axonigma/gsnote/internal/syncgit"
 	"github.com/axonigma/gsnote/internal/task"
+	"github.com/axonigma/gsnote/internal/voice"
 	"github.com/axonigma/gsnote/internal/writer"
 )
 
@@ -144,6 +145,14 @@ const journalHelpText = `Available journal commands:
   /journal cancel — stop the current journal flow
   /journal clear  — delete today's journal file`
 
+const voiceUsageText = `Available voice commands:
+  /voice list           — list recent voice captures
+  /voice delete <id>    — delete a voice capture, e.g. /voice delete 00001
+  /voice help           — show this help
+
+Tip: send a Telegram voice message to capture a note.`
+
+
 const cronHelpText = `Available cron commands:
   /cron <HH:MM> <command>       — run a command daily
   /cron <cron spec> <command>  — run a command on a cron schedule
@@ -168,6 +177,7 @@ const helpText = `Available commands:
   /task  — manage tasks
   /idea  — capture an idea (pain, insight, or content)
   /note  — save a link with your take
+  /voice — capture a voice note; manage with /voice list, /voice delete
   /journal — complete today's guided journal
   /cron  — schedule /task view, /journal, or /sync
   /sync  — git add, commit, and push to origin main
@@ -179,6 +189,7 @@ const (
 	cmdTask    = "/task"
 	cmdIdea    = "/idea"
 	cmdNote    = "/note"
+	cmdVoice   = "/voice"
 	cmdJournal = "/journal"
 	cmdCron    = "/cron"
 	cmdSync    = "/sync"
@@ -197,6 +208,13 @@ const (
 
 const warnText = `Command not found, use /help for guide`
 
+// voiceService is the minimal voice pipeline surface the handler depends on.
+type voiceService interface {
+	ProcessVoiceMessage(msg *tgbotapi.Message)
+	Delete(voiceID string) (string, error)
+	List() (string, error)
+}
+
 // Handler holds dependencies for command handling.
 type Handler struct {
 	bot                 *tgbotapi.BotAPI
@@ -211,6 +229,7 @@ type Handler struct {
 	whitelistTelegramID map[int64]bool
 	pendingNotes        map[int64]string // userID → note file path awaiting "My Take"
 	journalSessions     map[int64]*journal.Session
+	voiceSvc            voiceService
 }
 
 func New(bot *tgbotapi.BotAPI, habitsRoot, syncRoot, tasksRoot, ideasRoot, notesRoot, journalsRoot, cronRoot, githubToken, gitAuthorName, gitAuthorEmail string, whitelistTelegramID map[int64]bool) *Handler {
@@ -230,6 +249,12 @@ func New(bot *tgbotapi.BotAPI, habitsRoot, syncRoot, tasksRoot, ideasRoot, notes
 	}
 }
 
+// StartVoiceProcessor registers the voice pipeline used for voice messages
+// and the /voice command.
+func (h *Handler) StartVoiceProcessor(vp voiceService) {
+	h.voiceSvc = vp
+}
+
 // Handle routes incoming updates to the appropriate command handler.
 func (h *Handler) Handle(update tgbotapi.Update) {
 	if update.CallbackQuery != nil {
@@ -245,6 +270,15 @@ func (h *Handler) Handle(update tgbotapi.Update) {
 	text := strings.TrimSpace(msg.Text)
 
 	if h.whitelistTelegramID != nil && !h.whitelistTelegramID[msg.From.ID] {
+		return
+	}
+
+	if msg.Voice != nil {
+		if h.voiceSvc == nil {
+			h.reply(msg, "Voice capture unavailable: STT/LLM not configured.")
+			return
+		}
+		h.voiceSvc.ProcessVoiceMessage(msg)
 		return
 	}
 
@@ -285,6 +319,8 @@ func (h *Handler) Handle(update tgbotapi.Update) {
 		h.handleIdea(msg, strings.TrimPrefix(text, cmdIdea))
 	case strings.HasPrefix(text, cmdNote):
 		h.handleNote(msg, strings.TrimPrefix(text, cmdNote))
+	case strings.HasPrefix(text, cmdVoice):
+		h.handleVoice(msg, strings.TrimPrefix(text, cmdVoice))
 	case strings.HasPrefix(text, cmdJournal):
 		h.handleJournal(msg, strings.TrimPrefix(text, cmdJournal))
 	case strings.HasPrefix(text, cmdCron):
@@ -443,6 +479,44 @@ func (h *Handler) handleNote(msg *tgbotapi.Message, args string) {
 
 	h.pendingNotes[msg.From.ID] = filePath
 	h.reply(msg, "What is your take?")
+}
+
+func (h *Handler) handleVoice(msg *tgbotapi.Message, args string) {
+	if h.voiceSvc == nil {
+		h.reply(msg, "Voice capture unavailable: STT/LLM not configured.")
+		return
+	}
+
+	parsed, err := parser.ParseVoiceCommand(args)
+	if err != nil {
+		h.reply(msg, voiceUsageText)
+		return
+	}
+
+	switch parsed.Action {
+	case parser.VoiceCmdList:
+		out, err := h.voiceSvc.List()
+		if err != nil {
+			log.Printf("voice list error: %v", err)
+			h.reply(msg, "Failed to list voice captures.")
+			return
+		}
+		h.reply(msg, out)
+	case parser.VoiceCmdDelete:
+		out, err := h.voiceSvc.Delete(parsed.Arg)
+		if err != nil {
+			if errors.Is(err, voice.ErrInvalidVoiceID) {
+				h.reply(msg, "Invalid voice ID. Expected format: 00001")
+				return
+			}
+			log.Printf("voice delete error: %v", err)
+			h.reply(msg, "Failed to delete voice capture.")
+			return
+		}
+		h.reply(msg, out)
+	default:
+		h.reply(msg, voiceUsageText)
+	}
 }
 
 func (h *Handler) handleJournal(msg *tgbotapi.Message, args string) {

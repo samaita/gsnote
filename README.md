@@ -103,6 +103,13 @@ IDEAS_ROOT=/home/youruser/vault/Ideas
 NOTES_ROOT=/home/youruser/vault/Notes
 JOURNALS_ROOT=/home/youruser/vault/Journals
 CRON_ROOT=/home/youruser/vault/CRON
+VOICES_ROOT=/home/youruser/vault/Voices
+STT_API_KEY=your_stt_api_key
+STT_BASE_URL=https://api.openai.com/v1
+STT_MODEL=whisper-1
+LLM_API_KEY=your_llm_api_key
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_MODEL=gpt-4o-mini
 WHITELIST_TELEGRAM_ID=your_telegram_id
 TIMEZONE=Asia/Jakarta
 ```
@@ -118,6 +125,13 @@ TIMEZONE=Asia/Jakarta
 - `NOTES_ROOT` — subdirectory where note markdown files will be written (created automatically)
 - `JOURNALS_ROOT` — subdirectory where journal markdown files will be written (defaults to `<SYNC_ROOT>/Journals`)
 - `CRON_ROOT` — directory where scheduled command definitions are stored
+- `VOICES_ROOT` — subdirectory where voice captures are stored (defaults to `<SYNC_ROOT>/Voices`)
+- `STT_API_KEY` — API key for speech-to-text; required to enable voice notes (OpenAI-compatible)
+- `STT_BASE_URL` — base URL for the STT API (defaults to `https://api.openai.com/v1`)
+- `STT_MODEL` — STT model name (defaults to `whisper-1`)
+- `LLM_API_KEY` — API key for the LLM used to process transcripts; required to enable voice notes (OpenAI-compatible)
+- `LLM_BASE_URL` — base URL for the LLM API (defaults to `https://api.openai.com/v1`)
+- `LLM_MODEL` — LLM model name (defaults to `gpt-4o-mini`)
 - `WHITELIST_TELEGRAM_ID` — your numeric Telegram ID from [@userinfobot](https://t.me/userinfobot)
 - `TIMEZONE` — IANA timezone name used for timestamps (e.g. `Asia/Jakarta`, `UTC`, `America/New_York`)
 
@@ -147,6 +161,7 @@ Run `/help` in Telegram for the current command list and usage details.
 | `/task ...` | Manage tasks |
 | `/idea <type> <title>` | Capture an idea |
 | `/note <link> <desc>` | Save a link with your take |
+| `/voice` | Voice notes — send a Telegram voice message to capture; `/voice list`, `/voice delete <id>` |
 | `/journal` | Complete today's guided journal |
 | `/cron ...` | Schedule `/task view`, `/journal`, or `/sync` |
 | `/sync` | Sync `SYNC_ROOT` to origin main using embedded go-git flow |
@@ -190,6 +205,39 @@ Manage entries with:
 - `/cron view`
 - `/cron edit N <spec> <command>`
 - `/cron delete N`
+
+### Voice notes
+
+Voice notes let you capture a thought by sending a Telegram voice message. Voice capture requires `STT_API_KEY` and `LLM_API_KEY` to be set.
+
+The flow is:
+
+```text
+Telegram voice → download audio → STT transcript → LLM summary + classification → saved in VOICES_ROOT
+```
+
+The original audio and a markdown file are saved in `VOICES_ROOT` (default `<SYNC_ROOT>/Voices`) with a shared sequential voice ID:
+
+```text
+Voices/00001-20260823-xxxx.ogg
+Voices/00001-20260823.md
+```
+
+The bot replies with the generated voice ID and a title:
+
+```text
+Saved 00001
+
+Address Quality sebagai API Audit
+```
+
+Manage captures with:
+
+- `/voice list` — list recent voice captures
+- `/voice delete 00001` — delete the audio and markdown for a capture
+- `/voice help` — show voice usage
+
+If STT or LLM processing fails, the original audio is kept so it can be retried later. Duplicate Telegram deliveries do not create duplicate captures.
 
 ## Feature update checklist
 
