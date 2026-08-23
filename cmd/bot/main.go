@@ -14,6 +14,7 @@ import (
 	"github.com/joho/godotenv"
 
 	"github.com/axonigma/gsnote/internal/handler"
+	"github.com/axonigma/gsnote/internal/voice"
 )
 
 var version = "dev"
@@ -97,6 +98,31 @@ func main() {
 		cronRoot = filepath.Join(syncRoot, "CRON")
 	}
 
+	voicesRoot := os.Getenv("VOICES_ROOT")
+	if voicesRoot == "" {
+		voicesRoot = filepath.Join(syncRoot, "Voices")
+	}
+
+	sttAPIKey := os.Getenv("STT_API_KEY")
+	sttBaseURL := os.Getenv("STT_BASE_URL")
+	if sttBaseURL == "" {
+		sttBaseURL = "https://api.openai.com/v1"
+	}
+	sttModel := os.Getenv("STT_MODEL")
+	if sttModel == "" {
+		sttModel = "whisper-1"
+	}
+
+	llmAPIKey := os.Getenv("LLM_API_KEY")
+	llmBaseURL := os.Getenv("LLM_BASE_URL")
+	if llmBaseURL == "" {
+		llmBaseURL = "https://api.openai.com/v1"
+	}
+	llmModel := os.Getenv("LLM_MODEL")
+	if llmModel == "" {
+		llmModel = "gpt-4o-mini"
+	}
+
 	githubToken := os.Getenv("GSNOTE_GITHUB_TOKEN")
 	gitAuthorName := os.Getenv("GSNOTE_GIT_AUTHOR_NAME")
 	gitAuthorEmail := os.Getenv("GSNOTE_GIT_AUTHOR_EMAIL")
@@ -147,7 +173,11 @@ func main() {
 		log.Fatalf("create cron root: %v", err)
 	}
 
-	log.Printf("config habits_root=%s sync_root=%s tasks_root=%s ideas_root=%s notes_root=%s journals_root=%s cron_root=%s whitelist_telegram_id=%s", habitsRoot, syncRoot, tasksRoot, ideasRoot, notesRoot, journalsRoot, cronRoot, whitelistTelegramIDStr)
+	if err := os.MkdirAll(voicesRoot, 0755); err != nil {
+		log.Fatalf("create voices root: %v", err)
+	}
+
+	log.Printf("config habits_root=%s sync_root=%s tasks_root=%s ideas_root=%s notes_root=%s journals_root=%s cron_root=%s voices_root=%s whitelist_telegram_id=%s", habitsRoot, syncRoot, tasksRoot, ideasRoot, notesRoot, journalsRoot, cronRoot, voicesRoot, whitelistTelegramIDStr)
 
 	bot, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
@@ -163,6 +193,11 @@ func main() {
 	log.Printf("allowed for %s\n", strings.Join(whitelistedTelegramIDs, ","))
 
 	h := handler.New(bot, habitsRoot, syncRoot, tasksRoot, ideasRoot, notesRoot, journalsRoot, cronRoot, githubToken, gitAuthorName, gitAuthorEmail, whitelistTelegramIDMap)
+
+	if sttAPIKey != "" && llmAPIKey != "" {
+		vp := voice.NewProcessor(bot, sttAPIKey, sttBaseURL, sttModel, llmAPIKey, llmBaseURL, llmModel, voicesRoot, syncRoot)
+		h.StartVoiceProcessor(vp)
+	}
 	h.StartCronScheduler()
 
 	u := tgbotapi.NewUpdate(0)
