@@ -2,74 +2,101 @@ package voice
 
 import (
 	"bytes"
-	"encoding/json"
+	"context"
+	"errors"
 	"fmt"
-	"io"
-	"mime/multipart"
-	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
 )
+
+const sttTimeout = 5 * time.Minute
 
 // Transcriber converts audio files to text.
 type Transcriber interface {
 	Transcribe(audioPath string) (string, error)
 }
 
-// OpenAITranscriber sends audio to the OpenAI-compatible transcription API.
-type OpenAITranscriber struct {
-	APIKey  string
-	BaseURL string
-	Model   string
+// LocalTranscriber runs whisper.cpp's whisper-cli locally against the audio
+// file. Audio never leaves the machine. The source file is expected to be an
+// OGG/Opus voice note; it is converted to a 16kHz mono WAV in a temporary
+// directory before being passed to whisper-cli.
+type LocalTranscriber struct {
+	Bin      string // whisper-cli binary (default "whisper-cli")
+	Model    string // path to a ggml whisper model (required)
+	Language string // whisper language, e.g. "auto" (default "auto")
+	FFmpeg   string // ffmpeg binary (default "ffmpeg")
 }
 
-// Transcribe sends audio to the STT API and returns the transcript.
-func (t *OpenAITranscriber) Transcribe(audioPath string) (string, error) {
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
+// Transcribe converts the audio to WAV and runs whisper-cli locally.
+func (t *LocalTranscriber) Transcribe(audioPath string) (string, error) {
+	if strings.TrimSpace(t.Model) == "" {
+		return "", errors.New("STT_MODEL is not configured")
+	}
 
-	f, err := os.Open(audioPath)
+	bin := t.Bin
+	if bin == "" {
+		bin = "whisper-cli"
+	}
+	ffmpeg := t.FFmpeg
+	if ffmpeg == "" {
+		ffmpeg = "ffmpeg"
+	}
+	lang := t.Language
+	if lang == "" {
+		lang = "auto"
+	}
+
+	if _, err := exec.LookPath(bin); err != nil {
+		return "", fmt.Errorf("whisper-cli binary %q not found: %w", bin, err)
+	}
+	if _, err := exec.LookPath(ffmpeg); err != nil {
+		return "", fmt.Errorf("ffmpeg binary %q not found: %w", ffmpeg, err)
+	}
+	if _, err := os.Stat(t.Model); err != nil {
+		return "", fmt.Errorf("STT model %q: %w", t.Model, err)
+	}
+
+	tmpDir, err := os.MkdirTemp("", "gsnote-stt-*")
 	if err != nil {
-		return "", fmt.Errorf("open audio: %w", err)
+		return "", fmt.Errorf("create temp dir: %w", err)
 	}
-	defer f.Close()
+	defer os.RemoveAll(tmpDir)
 
-	part, err := writer.CreateFormFile("file", "audio.ogg")
+	wavPath := filepath.Join(tmpDir, "audio.wav")
+	if err := runCommand(sttTimeout, ffmpeg, "-y", "-i", audioPath, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wavPath); err != nil {
+		return "", fmt.Errorf("ffmpeg conversion: %w", err)
+	}
+
+	outPrefix := filepath.Join(tmpDir, "out")
+	args := []string{"-m", t.Model, "-f", wavPath, "-l", lang, "-nt", "-otxt", "-of", outPrefix}
+	if err := runCommand(sttTimeout, bin, args...); err != nil {
+		return "", fmt.Errorf("whisper: %w", err)
+	}
+
+	data, err := os.ReadFile(outPrefix + ".txt")
 	if err != nil {
-		return "", fmt.Errorf("create form file: %w", err)
+		return "", fmt.Errorf("read transcript: %w", err)
 	}
-	if _, err := io.Copy(part, f); err != nil {
-		return "", fmt.Errorf("copy audio: %w", err)
-	}
+	return strings.TrimSpace(string(data)), nil
+}
 
-	writer.WriteField("model", t.Model)
-	if err := writer.Close(); err != nil {
-		return "", fmt.Errorf("close multipart: %w", err)
-	}
+func runCommand(timeout time.Duration, bin string, args ...string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
 
-	url := t.BaseURL + "/audio/transcriptions"
-	req, err := http.NewRequest("POST", url, body)
-	if err != nil {
-		return "", fmt.Errorf("create request: %w", err)
+	cmd := exec.CommandContext(ctx, bin, args...)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(out.String())
+		if msg == "" {
+			return err
+		}
+		return fmt.Errorf("%w: %s", err, msg)
 	}
-	req.Header.Set("Authorization", "Bearer "+t.APIKey)
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-
-	var result struct {
-		Text string `json:"text"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("decode response: %w", err)
-	}
-	return result.Text, nil
+	return nil
 }

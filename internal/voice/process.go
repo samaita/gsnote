@@ -26,10 +26,10 @@ type Processor struct {
 }
 
 // NewProcessor creates a new Processor instance.
-func NewProcessor(bot *tgbotapi.BotAPI, sttKey, sttBaseURL, sttModel, llmKey, llmBaseURL, llmModel string, voicesRoot, syncRoot string) *Processor {
+func NewProcessor(bot *tgbotapi.BotAPI, sttBin, sttModel, sttLang string, llmKey, llmBaseURL, llmModel string, voicesRoot, syncRoot string) *Processor {
 	p := &Processor{
 		bot:         bot,
-		transcriber: &OpenAITranscriber{APIKey: sttKey, BaseURL: sttBaseURL, Model: sttModel},
+		transcriber: &LocalTranscriber{Bin: sttBin, Model: sttModel, Language: sttLang},
 		llm:         &OpenAILLM{APIKey: llmKey, BaseURL: llmBaseURL, Model: llmModel},
 		idMgr:       NewIDManager(voicesRoot),
 		voicesRoot:  voicesRoot,

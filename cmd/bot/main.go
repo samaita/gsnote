@@ -103,14 +103,18 @@ func main() {
 		voicesRoot = filepath.Join(syncRoot, "Voices")
 	}
 
-	sttAPIKey := os.Getenv("STT_API_KEY")
-	sttBaseURL := os.Getenv("STT_BASE_URL")
-	if sttBaseURL == "" {
-		sttBaseURL = "https://api.openai.com/v1"
+	sttBin := os.Getenv("STT_BIN")
+	if sttBin == "" {
+		sttBin = "whisper-cli"
 	}
 	sttModel := os.Getenv("STT_MODEL")
-	if sttModel == "" {
-		sttModel = "whisper-1"
+	sttLang := os.Getenv("STT_LANGUAGE")
+	if sttLang == "" {
+		sttLang = "auto"
+	}
+	ffmpegBin := os.Getenv("FFMPEG_BIN")
+	if ffmpegBin == "" {
+		ffmpegBin = "ffmpeg"
 	}
 
 	llmAPIKey := os.Getenv("LLM_API_KEY")
@@ -194,8 +198,8 @@ func main() {
 
 	h := handler.New(bot, habitsRoot, syncRoot, tasksRoot, ideasRoot, notesRoot, journalsRoot, cronRoot, githubToken, gitAuthorName, gitAuthorEmail, whitelistTelegramIDMap)
 
-	if sttAPIKey != "" && llmAPIKey != "" {
-		vp := voice.NewProcessor(bot, sttAPIKey, sttBaseURL, sttModel, llmAPIKey, llmBaseURL, llmModel, voicesRoot, syncRoot)
+	if llmAPIKey != "" && sttModel != "" {
+		vp := voice.NewProcessor(bot, sttBin, sttModel, sttLang, llmAPIKey, llmBaseURL, llmModel, voicesRoot, syncRoot)
 		h.StartVoiceProcessor(vp)
 	}
 	h.StartCronScheduler()

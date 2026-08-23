@@ -104,9 +104,10 @@ NOTES_ROOT=/home/youruser/vault/Notes
 JOURNALS_ROOT=/home/youruser/vault/Journals
 CRON_ROOT=/home/youruser/vault/CRON
 VOICES_ROOT=/home/youruser/vault/Voices
-STT_API_KEY=your_stt_api_key
-STT_BASE_URL=https://api.openai.com/v1
-STT_MODEL=whisper-1
+STT_BIN=whisper-cli
+STT_MODEL=/home/youruser/models/ggml-medium.bin
+STT_LANGUAGE=auto
+FFMPEG_BIN=ffmpeg
 LLM_API_KEY=your_llm_api_key
 LLM_BASE_URL=https://api.openai.com/v1
 LLM_MODEL=gpt-4o-mini
@@ -126,9 +127,10 @@ TIMEZONE=Asia/Jakarta
 - `JOURNALS_ROOT` — subdirectory where journal markdown files will be written (defaults to `<SYNC_ROOT>/Journals`)
 - `CRON_ROOT` — directory where scheduled command definitions are stored
 - `VOICES_ROOT` — subdirectory where voice captures are stored (defaults to `<SYNC_ROOT>/Voices`)
-- `STT_API_KEY` — API key for speech-to-text; required to enable voice notes (OpenAI-compatible)
-- `STT_BASE_URL` — base URL for the STT API (defaults to `https://api.openai.com/v1`)
-- `STT_MODEL` — STT model name (defaults to `whisper-1`)
+- `STT_BIN` — path to the local `whisper-cli` binary from [whisper.cpp](https://github.com/ggerganov/whisper.cpp) (defaults to `whisper-cli` on `PATH`)
+- `STT_MODEL` — path to a local ggml whisper model file, e.g. `ggml-small.bin` or `ggml-medium.bin` for Indonesian/English speech (required for voice notes; downloads from `https://huggingface.co/ggerganov/whisper.cpp`)
+- `STT_LANGUAGE` — whisper language code or `auto` (defaults to `auto`)
+- `FFMPEG_BIN` — path to `ffmpeg`, used to convert Telegram's OGG voice notes to 16kHz WAV before transcription (defaults to `ffmpeg` on `PATH`)
 - `LLM_API_KEY` — API key for the LLM used to process transcripts; required to enable voice notes (OpenAI-compatible)
 - `LLM_BASE_URL` — base URL for the LLM API (defaults to `https://api.openai.com/v1`)
 - `LLM_MODEL` — LLM model name (defaults to `gpt-4o-mini`)
@@ -208,12 +210,30 @@ Manage entries with:
 
 ### Voice notes
 
-Voice notes let you capture a thought by sending a Telegram voice message. Voice capture requires `STT_API_KEY` and `LLM_API_KEY` to be set.
+Voice notes let you capture a thought by sending a Telegram voice message. Transcription runs fully **locally** with [whisper.cpp](https://github.com/ggerganov/whisper.cpp); audio never leaves your machine. Voice capture requires `STT_MODEL` and `LLM_API_KEY` to be set.
+
+Local STT setup:
+
+```bash
+# whisper-cli from whisper.cpp (build from source)
+git clone https://github.com/ggerganov/whisper.cpp && cd whisper.cpp
+make
+# add ./build/bin (or ./bin) to PATH, or set STT_BIN to the binary path
+
+# download a model with good Indonesian/English support
+wget -O ~/models/ggml-medium.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin
+
+# ffmpeg for converting OGG voice notes to WAV
+brew install ffmpeg
+```
+
+Set `STT_MODEL=/home/youruser/models/ggml-medium.bin` in `~/.config/gsnote/.env`.
 
 The flow is:
 
 ```text
-Telegram voice → download audio → STT transcript → LLM summary + classification → saved in VOICES_ROOT
+Telegram voice → download audio → ffmpeg → whisper-cli (local) → LLM summary + classification → saved in VOICES_ROOT
 ```
 
 The original audio and a markdown file are saved in `VOICES_ROOT` (default `<SYNC_ROOT>/Voices`) with a shared sequential voice ID:
