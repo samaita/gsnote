@@ -13,6 +13,8 @@ import (
 	"github.com/joho/godotenv"
 
 	"github.com/axonigma/gsnote/internal/handler"
+	"github.com/axonigma/gsnote/internal/jobs"
+	"github.com/axonigma/gsnote/internal/transcription"
 	"github.com/axonigma/gsnote/internal/voice"
 )
 
@@ -62,18 +64,17 @@ func main() {
 		log.Fatal("TELEGRAM_BOT_TOKEN is required")
 	}
 
-	root := os.Getenv("GSNOTE_ROOT")
+	root := os.Getenv("DATA_DIR")
 	if root == "" {
-		log.Fatal("GSNOTE_ROOT is required")
+		root = os.Getenv("GSNOTE_ROOT")
+	}
+	if root == "" {
+		root = "/data"
 	}
 
 	if err := os.MkdirAll(root, 0755); err != nil {
 		log.Fatalf("create gsnote root: %v", err)
 	}
-
-	elevenAPIKey := os.Getenv("ELEVEN_API_KEY")
-	elevenModel := os.Getenv("ELEVEN_MODEL")
-	elevenLanguage := os.Getenv("ELEVEN_LANGUAGE")
 
 	whitelistTelegramIDMap := make(map[int64]bool)
 	whitelistTelegramIDStr := os.Getenv("WHITELIST_TELEGRAM_ID")
@@ -86,7 +87,7 @@ func main() {
 		}
 	}
 
-	log.Printf("config gsnote_root=%s eleven_model=%s eleven_language=%s", root, elevenModel, elevenLanguage)
+	log.Printf("config data_dir=%s", root)
 
 	bot, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
@@ -96,13 +97,16 @@ func main() {
 	log.Printf("authorized as @%s\n", bot.Self.UserName)
 
 	h := handler.New(bot, whitelistTelegramIDMap)
-
-	if elevenAPIKey != "" {
-		vp := voice.NewProcessor(bot, elevenAPIKey, elevenModel, elevenLanguage, root)
-		h.StartVoiceProcessor(vp)
-	} else {
-		log.Printf("ELEVEN_API_KEY not set: voice capture disabled, /help only")
+	vp, err := voice.NewAsyncProcessor(bot, root)
+	if err != nil {
+		log.Fatalf("init voice pipeline: %v", err)
 	}
+	h.StartVoiceProcessor(vp)
+	threads, _ := strconv.Atoi(os.Getenv("TRANSCRIBER_THREADS"))
+	worker := &jobs.Worker{Repo: vp.Repository(), Transcriber: transcription.Whisper{Binary: os.Getenv("TRANSCRIBER_BINARY"), Model: os.Getenv("TRANSCRIBER_MODEL"), Language: "id", Threads: threads}, Notifier: vp}
+	stop := make(chan struct{})
+	go worker.Run(stop)
+	defer close(stop)
 
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
