@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/joho/godotenv"
@@ -63,80 +62,31 @@ func main() {
 		log.Fatal("TELEGRAM_BOT_TOKEN is required")
 	}
 
-	habitsRoot := os.Getenv("HABITS_ROOT")
-	if habitsRoot == "" {
-		log.Fatal("HABITS_ROOT is required")
+	root := os.Getenv("GSNOTE_ROOT")
+	if root == "" {
+		log.Fatal("GSNOTE_ROOT is required")
 	}
 
-	syncRoot := os.Getenv("SYNC_ROOT")
-	if syncRoot == "" {
-		log.Fatal("SYNC_ROOT is required")
+	if err := os.MkdirAll(root, 0755); err != nil {
+		log.Fatalf("create gsnote root: %v", err)
 	}
 
-	voicesRoot := os.Getenv("VOICES_ROOT")
-	if voicesRoot == "" {
-		voicesRoot = filepath.Join(syncRoot, "Voices")
-	}
-
-	sttBin := os.Getenv("STT_BIN")
-	if sttBin == "" {
-		sttBin = "whisper-cli"
-	}
-	sttModel := os.Getenv("STT_MODEL")
-	sttLang := os.Getenv("STT_LANGUAGE")
-	if sttLang == "" {
-		sttLang = "auto"
-	}
-	ffmpegBin := os.Getenv("FFMPEG_BIN")
-	if ffmpegBin == "" {
-		ffmpegBin = "ffmpeg"
-	}
-
-	llmAPIKey := os.Getenv("LLM_API_KEY")
-	llmBaseURL := os.Getenv("LLM_BASE_URL")
-	if llmBaseURL == "" {
-		llmBaseURL = "https://api.openai.com/v1"
-	}
-	llmModel := os.Getenv("LLM_MODEL")
-	if llmModel == "" {
-		llmModel = "gpt-4o-mini"
-	}
-
-	githubToken := os.Getenv("GSNOTE_GITHUB_TOKEN")
-	gitAuthorName := os.Getenv("GSNOTE_GIT_AUTHOR_NAME")
-	gitAuthorEmail := os.Getenv("GSNOTE_GIT_AUTHOR_EMAIL")
-
-	tz := os.Getenv("TIMEZONE")
-	if tz == "" {
-		tz = "Asia/Jakarta"
-	}
-	loc, err := time.LoadLocation(tz)
-	if err != nil {
-		log.Fatalf("invalid TIMEZONE %q: %v", tz, err)
-	}
-	time.Local = loc
-	log.Printf("timezone=%s", tz)
+	elevenAPIKey := os.Getenv("ELEVEN_API_KEY")
+	elevenModel := os.Getenv("ELEVEN_MODEL")
+	elevenLanguage := os.Getenv("ELEVEN_LANGUAGE")
 
 	whitelistTelegramIDMap := make(map[int64]bool)
 	whitelistTelegramIDStr := os.Getenv("WHITELIST_TELEGRAM_ID")
 	if whitelistTelegramIDStr != "" {
-		for i := range strings.Split(whitelistTelegramIDStr, ",") {
-			res, err := strconv.ParseInt(strings.Split(whitelistTelegramIDStr, ",")[i], 10, 64)
+		for _, part := range strings.Split(whitelistTelegramIDStr, ",") {
+			res, err := strconv.ParseInt(strings.TrimSpace(part), 10, 64)
 			if err == nil {
 				whitelistTelegramIDMap[res] = true
 			}
 		}
 	}
 
-	if err := os.MkdirAll(habitsRoot, 0755); err != nil {
-		log.Fatalf("create habits root: %v", err)
-	}
-
-	if err := os.MkdirAll(voicesRoot, 0755); err != nil {
-		log.Fatalf("create voices root: %v", err)
-	}
-
-	log.Printf("config habits_root=%s sync_root=%s voices_root=%s whitelist_telegram_id=%s", habitsRoot, syncRoot, voicesRoot, whitelistTelegramIDStr)
+	log.Printf("config gsnote_root=%s eleven_model=%s eleven_language=%s", root, elevenModel, elevenLanguage)
 
 	bot, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
@@ -145,17 +95,13 @@ func main() {
 
 	log.Printf("authorized as @%s\n", bot.Self.UserName)
 
-	var whitelistedTelegramIDs []string
-	for i := range whitelistTelegramIDMap {
-		whitelistedTelegramIDs = append(whitelistedTelegramIDs, fmt.Sprintf("%d", i))
-	}
-	log.Printf("allowed for %s\n", strings.Join(whitelistedTelegramIDs, ","))
+	h := handler.New(bot, whitelistTelegramIDMap)
 
-	h := handler.New(bot, habitsRoot, syncRoot, githubToken, gitAuthorName, gitAuthorEmail, whitelistTelegramIDMap)
-
-	if llmAPIKey != "" && sttModel != "" {
-		vp := voice.NewProcessor(bot, sttBin, sttModel, sttLang, llmAPIKey, llmBaseURL, llmModel, voicesRoot, syncRoot)
+	if elevenAPIKey != "" {
+		vp := voice.NewProcessor(bot, elevenAPIKey, elevenModel, elevenLanguage, root)
 		h.StartVoiceProcessor(vp)
+	} else {
+		log.Printf("ELEVEN_API_KEY not set: voice capture disabled, /help only")
 	}
 
 	u := tgbotapi.NewUpdate(0)
