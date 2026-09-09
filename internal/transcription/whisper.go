@@ -3,7 +3,9 @@ package transcription
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -22,7 +24,15 @@ func (w Whisper) Transcribe(audioPath string) (string, error) {
 	if w.Model == "" {
 		return "", fmt.Errorf("TRANSCRIBER_MODEL is required")
 	}
-	args := []string{"-m", w.Model, "-f", audioPath, "-otxt", "-of", "-", "-nt"}
+	wavPath := filepath.Join(filepath.Dir(audioPath), strings.TrimSuffix(filepath.Base(audioPath), filepath.Ext(audioPath))+".wav")
+	convertArgs := []string{"-y", "-i", audioPath, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wavPath}
+	if out, e := exec.CommandContext(context.Background(), "ffmpeg", convertArgs...).CombinedOutput(); e != nil {
+		return "", fmt.Errorf("ffmpeg: %w: %s", e, strings.TrimSpace(string(out)))
+	}
+	if e := os.Remove(audioPath); e != nil {
+		return "", fmt.Errorf("ffmpeg: remove source audio: %w", e)
+	}
+	args := []string{"-m", w.Model, "-f", wavPath, "-otxt", "-of", "-", "-nt"}
 	if w.Language != "" {
 		args = append(args, "-l", w.Language)
 	}

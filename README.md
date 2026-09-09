@@ -38,7 +38,7 @@ Config is read from `~/.config/gsnote/.env` (or a local `.env`):
 | `TRANSCRIBER_THREADS` | No | CPU thread count |
 | `TRANSCRIBER_LANGUAGE` | No | ISO-639-1 like `id` or `en` |
 
-Install `whisper.cpp` and provide `models/ggml-small-q5_1.bin`. No API key or paid STT service is used.
+Install `ffmpeg` and `whisper.cpp`, and provide `models/ggml-small-q5_1.bin`. OGG audio is converted to 16 kHz mono WAV before transcription. No API key or paid STT service is used.
 
 ## Install
 
