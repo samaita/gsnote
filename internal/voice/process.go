@@ -12,36 +12,38 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-// Processor orchestrates the full voice-to-note pipeline.
+// Processor orchestrates the voice capture pipeline: download the voice note,
+// persist the raw audio, transcribe it, and write the transcript note.
 type Processor struct {
 	bot         *tgbotapi.BotAPI
 	transcriber Transcriber
-	llm         NoteLLM
 	idMgr       *IDManager
-	voicesRoot  string
-	syncRoot    string
+	root        string
 	fetchAudio  func(msg *tgbotapi.Message) (tmpPath, ext string, err error)
 	send        func(msg *tgbotapi.Message, text string)
 	lastMsgSeq  map[int64]bool // messageID -> processed
 }
 
-// NewProcessor creates a new Processor instance.
-func NewProcessor(bot *tgbotapi.BotAPI, sttBin, sttModel, sttLang string, llmKey, llmBaseURL, llmModel string, voicesRoot, syncRoot string) *Processor {
+// NewProcessor creates a new Processor instance. root is the single gsnote
+// folder holding audio files, transcript notes, and the ID counter.
+func NewProcessor(bot *tgbotapi.BotAPI, elevenKey, elevenModel, elevenLang, root string) *Processor {
 	p := &Processor{
-		bot:         bot,
-		transcriber: &LocalTranscriber{Bin: sttBin, Model: sttModel, Language: sttLang},
-		llm:         &OpenAILLM{APIKey: llmKey, BaseURL: llmBaseURL, Model: llmModel},
-		idMgr:       NewIDManager(voicesRoot),
-		voicesRoot:  voicesRoot,
-		syncRoot:    syncRoot,
-		lastMsgSeq:  make(map[int64]bool),
+		bot: bot,
+		transcriber: &ElevenTranscriber{
+			APIKey:   elevenKey,
+			Model:    elevenModel,
+			Language: elevenLang,
+		},
+		idMgr:      NewIDManager(root),
+		root:       root,
+		lastMsgSeq: make(map[int64]bool),
 	}
 	p.fetchAudio = p.downloadVoice
 	p.send = p.sendToChat
 	return p
 }
 
-// ProcessVoiceMessage handles the full voice processing pipeline.
+// ProcessVoiceMessage handles the full voice capture pipeline.
 func (p *Processor) ProcessVoiceMessage(msg *tgbotapi.Message) {
 	if msg == nil {
 		return
@@ -80,112 +82,40 @@ func (p *Processor) ProcessVoiceMessage(msg *tgbotapi.Message) {
 		return
 	}
 
-	// Persist the original audio before any STT/LLM work so a later
-	// failure never destroys the recording.
-	date := time.Now().In(time.Local)
+	// Persist the original audio before any STT work so a later failure
+	// never destroys the recording.
+	date := time.Now()
 
 	audioFilename := fmt.Sprintf("%s-%s%s", voiceID, date.Format("20060102150405"), ext)
-	audioPath := filepath.Join(p.voicesRoot, audioFilename)
+	audioPath := filepath.Join(p.root, audioFilename)
 	if err := copyFile(voicePath, audioPath); err != nil {
 		log.Printf("voice save error: %v", err)
 		p.send(msg, "Failed to save audio file.")
 		return
 	}
 
-	rawTranscript, err := p.transcriber.Transcribe(audioPath)
+	transcript, err := p.transcriber.Transcribe(audioPath)
 	if err != nil {
 		log.Printf("voice STT error: %v", err)
 		p.send(msg, "Voice received. STT failed — audio saved for retry.")
 		return
 	}
 
-	// Persist the raw transcript immediately so it survives any later LLM
-	// or markdown failure.
-	transcriptPath := filepath.Join(p.voicesRoot, voiceID+".md")
-	if err := WriteRawTranscript(transcriptPath, rawTranscript); err != nil {
-		log.Printf("voice transcript save error: %v", err)
-		p.send(msg, "Voice received. Transcript could not be saved — audio saved for retry.")
-		return
-	}
-
-	info, err := p.llm.Process(rawTranscript)
-	if err != nil {
-		log.Printf("voice LLM error: %v", err)
-		p.send(msg, "Voice received. LLM failed — audio saved for retry.")
-		return
-	}
-
-	if err := validateVoiceInfo(info); err != nil {
-		log.Printf("voice LLM invalid result: %v", err)
-		p.send(msg, "Voice received. LLM returned an invalid result — audio saved for retry.")
-		return
-	}
-
 	meta := VoiceMetadata{
 		ID:         voiceID,
 		Date:       date,
-		Title:      info.Title,
-		Summary:    info.Summary,
-		Content:    info.Content,
-		Transcript: rawTranscript,
-		VoiceType:  info.Type,
-		Category:   info.Category,
-		Project:    info.Project,
-		Tags:       info.Tags,
+		Transcript: transcript,
 		Audio:      audioFilename,
 	}
-
 	mdFilename := DefaultMDFilename(voiceID, date)
-	mdPath := filepath.Join(p.voicesRoot, mdFilename)
+	mdPath := filepath.Join(p.root, mdFilename)
 	if err := WriteMarkdown(mdPath, meta); err != nil {
 		log.Printf("voice markdown write error: %v", err)
 		p.send(msg, fmt.Sprintf("Voice received. Audio saved as %s, but the note file could not be written.", voiceID))
 		return
 	}
 
-	p.send(msg, fmt.Sprintf("Saved %s\n\n%s", voiceID, info.Title))
-}
-
-// Delete removes the voice capture files identified by voiceID.
-func (p *Processor) Delete(voiceID string) (string, error) {
-	return DeleteByID(p.voicesRoot, voiceID)
-}
-
-// List returns a human-readable list of recent voice captures.
-func (p *Processor) List() (string, error) {
-	return ListVoices(p.voicesRoot)
-}
-
-// ListVoices returns the list of voice captures in the directory.
-func ListVoices(voicesRoot string) (string, error) {
-	entries, err := os.ReadDir(voicesRoot)
-	if err != nil {
-		return "", fmt.Errorf("read voices dir: %w", err)
-	}
-
-	var voiceNames []string
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		name := e.Name()
-		if idx := findDashIdx(name); idx > 0 {
-			voiceNames = append(voiceNames, name[:idx])
-		}
-	}
-	if len(voiceNames) == 0 {
-		return "No voice captures found.", nil
-	}
-
-	result := "Recent voice captures:\n"
-	start := len(voiceNames) - 10
-	if start < 0 {
-		start = 0
-	}
-	for i := len(voiceNames) - 1; i >= start; i-- {
-		result += "  " + voiceNames[i] + "\n"
-	}
-	return result[:len(result)-1], nil
+	p.send(msg, fmt.Sprintf("Saved %s\n\n%s", voiceID, truncate(transcript, 200)))
 }
 
 // downloadVoice fetches audio from Telegram and saves it to a temp file.
@@ -267,11 +197,9 @@ func copyFile(src, dst string) error {
 	return out.Close()
 }
 
-func findDashIdx(s string) int {
-	for i, c := range s {
-		if c == '-' {
-			return i
-		}
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
 	}
-	return -1
+	return s[:n] + "…"
 }

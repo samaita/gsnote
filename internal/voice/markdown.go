@@ -3,65 +3,33 @@ package voice
 import (
 	"fmt"
 	"os"
-	"strings"
 	"time"
 )
 
-// VoiceMetadata is the data written to the markdown file.
+// VoiceMetadata is the data written to the transcript note.
 type VoiceMetadata struct {
 	ID         string
 	Date       time.Time
-	Title      string
-	Summary    string
-	Content    string
 	Transcript string
-	VoiceType  string
-	Category   string
-	Project    string
-	Tags       []string
-	Audio      string
+	Audio      string // audio filename relative to the gsnote root
 }
 
-// WriteMarkdown writes the voice note as a markdown file.
+// WriteMarkdown writes the voice note as a markdown file: frontmatter with
+// the capture identity plus the verbatim transcript as the body.
 func WriteMarkdown(path string, meta VoiceMetadata) error {
-	tagsLines := ""
-	for _, tag := range meta.Tags {
-		tagsLines += "      - " + tag + "\n"
-	}
-
 	content := fmt.Sprintf(`---
 id: "%s"
 date: %s
-title: "%s"
-type: %s
-category: %s
-project: %s
-tags:
-%ssource: telegram-voice
+source: telegram-voice
 audio: %s
 ---
 
-# %s
-
-## Summary
-
 %s
-
-## Transcript
-
-%s
-`, meta.ID, meta.Date.Format("2006-01-02"), meta.Title, meta.VoiceType, meta.Category, meta.Project, strings.TrimSpace(tagsLines), meta.Audio, meta.Title, meta.Summary, meta.Transcript)
-
+`, meta.ID, meta.Date.Format("2006-01-02 15:04"), meta.Audio, meta.Transcript)
 	return os.WriteFile(path, []byte(content), 0644)
 }
 
 // DefaultMDFilename generates a markdown filename for a voice capture.
 func DefaultMDFilename(voiceID string, date time.Time) string {
 	return fmt.Sprintf("%s-%s.md", voiceID, date.Format("20060102"))
-}
-
-// WriteRawTranscript writes the raw transcript to a standalone markdown file.
-func WriteRawTranscript(path, transcript string) error {
-	content := fmt.Sprintf("# Transcript\n\n%s\n", transcript)
-	return os.WriteFile(path, []byte(content), 0644)
 }
