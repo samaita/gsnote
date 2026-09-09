@@ -1,157 +1,110 @@
 package handler
 
 import (
+	"strings"
 	"testing"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-
-	"github.com/axonigma/gsnote/internal/voice"
 )
 
-type fakeVoiceSvc struct {
-	processed  int
-	deleteID   string
-	deleteOut  string
-	deleteErr  error
-	listCalled bool
+type fakeVoiceService struct {
+	called int
 }
 
-func (f *fakeVoiceSvc) ProcessVoiceMessage(msg *tgbotapi.Message) {
-	f.processed++
+func (f *fakeVoiceService) ProcessVoiceMessage(msg *tgbotapi.Message) {
+	f.called++
 }
 
-func (f *fakeVoiceSvc) Delete(id string) (string, error) {
-	f.deleteID = id
-	return f.deleteOut, f.deleteErr
-}
-
-func (f *fakeVoiceSvc) List() (string, error) {
-	f.listCalled = true
-	return "Recent voice captures:\n  00001", nil
-}
-
-func newTestHandler(t *testing.T) *Handler {
-	return New(nil, t.TempDir(), t.TempDir(), "", "", "", nil)
-}
-
-func TestHandleRoutesVoiceMessageToProcessor(t *testing.T) {
-	h := newTestHandler(t)
-	svc := &fakeVoiceSvc{}
-	h.StartVoiceProcessor(svc)
-
-	msg := &tgbotapi.Message{
-		MessageID: 7,
-		Chat:      &tgbotapi.Chat{ID: 1},
-		From:      &tgbotapi.User{ID: 2},
-		Voice:     &tgbotapi.Voice{FileID: "file_id"},
+func newTestHandler(whitelist map[int64]bool) (*Handler, *[]string) {
+	h := New(nil, whitelist)
+	sent := []string{}
+	h.sendToChat = func(chatID int64, text string, replyIDs ...int) {
+		sent = append(sent, text)
 	}
-	h.Handle(tgbotapi.Update{Message: msg})
+	return h, &sent
+}
 
-	if svc.processed != 1 {
-		t.Fatalf("expected voice message routed to processor, processed=%d", svc.processed)
+func TestHandleHelp(t *testing.T) {
+	h, sent := newTestHandler(map[int64]bool{100: true})
+	h.Handle(tgbotapi.Update{Message: &tgbotapi.Message{
+		MessageID: 1,
+		From:      &tgbotapi.User{ID: 100},
+		Chat:      &tgbotapi.Chat{ID: 100},
+		Text:      "/help",
+	}})
+	if len(*sent) != 1 || !strings.Contains((*sent)[0], "/help") {
+		t.Fatalf("sent = %v", *sent)
 	}
 }
 
-func TestHandleVoiceMessageWithoutProcessorDoesNotPanic(t *testing.T) {
-	h := newTestHandler(t)
-
-	msg := &tgbotapi.Message{
-		MessageID: 7,
-		Chat:      &tgbotapi.Chat{ID: 1},
-		From:      &tgbotapi.User{ID: 2},
-		Voice:     &tgbotapi.Voice{FileID: "file_id"},
-	}
-	h.Handle(tgbotapi.Update{Message: msg})
-}
-
-func TestHandleTextDoesNotRouteToVoiceProcessor(t *testing.T) {
-	h := newTestHandler(t)
-	svc := &fakeVoiceSvc{}
-	h.StartVoiceProcessor(svc)
-
-	msg := &tgbotapi.Message{
-		MessageID: 8,
-		Chat:      &tgbotapi.Chat{ID: 1},
-		From:      &tgbotapi.User{ID: 2},
-		Text:      "just a thought",
-	}
-	h.Handle(tgbotapi.Update{Message: msg})
-
-	if svc.processed != 0 {
-		t.Fatalf("plain text must not reach the voice processor")
+func TestHandleVoiceMessage(t *testing.T) {
+	h, _ := newTestHandler(map[int64]bool{100: true})
+	vs := &fakeVoiceService{}
+	h.StartVoiceProcessor(vs)
+	h.Handle(tgbotapi.Update{Message: &tgbotapi.Message{
+		MessageID: 2,
+		From:      &tgbotapi.User{ID: 100},
+		Chat:      &tgbotapi.Chat{ID: 100},
+		Voice:     &tgbotapi.Voice{FileID: "f1"},
+	}})
+	if vs.called != 1 {
+		t.Fatalf("voice service called %d times, want 1", vs.called)
 	}
 }
 
-func TestHandleVoiceDeleteCommand(t *testing.T) {
-	h := newTestHandler(t)
-	svc := &fakeVoiceSvc{deleteOut: "Deleted voice 00001."}
-	h.StartVoiceProcessor(svc)
-
-	msg := &tgbotapi.Message{
-		MessageID: 9,
-		Chat:      &tgbotapi.Chat{ID: 1},
-		From:      &tgbotapi.User{ID: 2},
-		Text:      "/voice delete 00001",
-	}
-	h.Handle(tgbotapi.Update{Message: msg})
-
-	if svc.deleteID != "00001" {
-		t.Fatalf("expected delete of 00001, got %q", svc.deleteID)
+func TestHandleVoiceWithoutProcessor(t *testing.T) {
+	h, sent := newTestHandler(map[int64]bool{100: true})
+	h.Handle(tgbotapi.Update{Message: &tgbotapi.Message{
+		MessageID: 3,
+		From:      &tgbotapi.User{ID: 100},
+		Chat:      &tgbotapi.Chat{ID: 100},
+		Voice:     &tgbotapi.Voice{FileID: "f1"},
+	}})
+	if len(*sent) != 1 || !strings.Contains((*sent)[0], "unavailable") {
+		t.Fatalf("sent = %v", *sent)
 	}
 }
 
-func TestHandleVoiceDeleteInvalidID(t *testing.T) {
-	h := newTestHandler(t)
-	svc := &fakeVoiceSvc{deleteErr: voice.ErrInvalidVoiceID}
-	h.StartVoiceProcessor(svc)
-
-	msg := &tgbotapi.Message{
-		MessageID: 10,
-		Chat:      &tgbotapi.Chat{ID: 1},
-		From:      &tgbotapi.User{ID: 2},
-		Text:      "/voice delete ../",
+func TestHandleWhitelistRejects(t *testing.T) {
+	h, sent := newTestHandler(map[int64]bool{100: true})
+	vs := &fakeVoiceService{}
+	h.StartVoiceProcessor(vs)
+	h.Handle(tgbotapi.Update{Message: &tgbotapi.Message{
+		MessageID: 4,
+		From:      &tgbotapi.User{ID: 999},
+		Chat:      &tgbotapi.Chat{ID: 999},
+		Text:      "/help",
+	}})
+	if len(*sent) != 0 {
+		t.Fatalf("non-whitelisted message must be ignored, sent = %v", *sent)
 	}
-	h.Handle(tgbotapi.Update{Message: msg})
-
-	if svc.deleteID != "../" {
-		t.Fatalf("expected delete attempted with raw arg, got %q", svc.deleteID)
-	}
-}
-
-func TestHandleVoiceListCommand(t *testing.T) {
-	h := newTestHandler(t)
-	svc := &fakeVoiceSvc{}
-	h.StartVoiceProcessor(svc)
-
-	msg := &tgbotapi.Message{
-		MessageID: 11,
-		Chat:      &tgbotapi.Chat{ID: 1},
-		From:      &tgbotapi.User{ID: 2},
-		Text:      "/voice list",
-	}
-	h.Handle(tgbotapi.Update{Message: msg})
-
-	if !svc.listCalled {
-		t.Fatalf("expected list called")
+	if vs.called != 0 {
+		t.Fatalf("voice service must not be called for strangers")
 	}
 }
 
-func TestHandleVoiceHelpDoesNotDelete(t *testing.T) {
-	h := newTestHandler(t)
-	svc := &fakeVoiceSvc{}
-	h.StartVoiceProcessor(svc)
-
-	for _, text := range []string{"/voice", "/voice help", "/voice bogus"} {
-		msg := &tgbotapi.Message{
-			MessageID: 12,
-			Chat:      &tgbotapi.Chat{ID: 1},
-			From:      &tgbotapi.User{ID: 2},
-			Text:      text,
-		}
-		h.Handle(tgbotapi.Update{Message: msg})
+func TestHandleUnknownCommand(t *testing.T) {
+	h, sent := newTestHandler(map[int64]bool{100: true})
+	h.Handle(tgbotapi.Update{Message: &tgbotapi.Message{
+		MessageID: 5,
+		From:      &tgbotapi.User{ID: 100},
+		Chat:      &tgbotapi.Chat{ID: 100},
+		Text:      "/sync",
+	}})
+	if len(*sent) != 1 || !strings.Contains((*sent)[0], "not found") {
+		t.Fatalf("sent = %v", *sent)
 	}
+}
 
-	if svc.deleteID != "" || svc.listCalled {
-		t.Fatalf("help/unknown voice commands must not trigger list or delete")
+func TestHandlePlainNoop(t *testing.T) {
+	h, sent := newTestHandler(map[int64]bool{100: true})
+	h.Handle(tgbotapi.Update{Message: &tgbotapi.Message{
+		MessageID: 6,
+		From:      &tgbotapi.User{ID: 100},
+		Chat:      &tgbotapi.Chat{ID: 100},
+		Text:      "just chatting",
+	}})
+	if len(*sent) != 0 {
+		t.Fatalf("plain text must be ignored, sent = %v", *sent)
 	}
 }
