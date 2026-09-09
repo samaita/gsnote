@@ -6,7 +6,8 @@ COPY . .
 RUN CGO_ENABLED=0 go build -o /out/gsnote ./cmd/bot
 
 FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates python3-pip ffmpeg && pip3 install --no-cache-dir --break-system-packages openai-whisper && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates whisper.cpp && rm -rf /var/lib/apt/lists/*
+COPY models/ggml-small-q5_1.bin /models/ggml-small-q5_1.bin
 COPY --from=build /out/gsnote /usr/local/bin/gsnote
 VOLUME ["/data"]
 ENTRYPOINT ["/usr/local/bin/gsnote"]

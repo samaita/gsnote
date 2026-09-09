@@ -7,7 +7,7 @@ A voice-only Telegram note bot. Send a voice message, get your words back as a m
 There is exactly one input: a Telegram voice message.
 
 ```text
-voice message -> raw audio saved -> local OpenAI Whisper transcription -> transcript note
+voice message -> raw audio saved -> local whisper.cpp transcription -> transcript note
 ```
 
 Every capture lands in one folder (`GSNOTE_ROOT`):
@@ -33,12 +33,12 @@ Config is read from `~/.config/gsnote/.env` (or a local `.env`):
 | `TELEGRAM_BOT_TOKEN` | Yes | Bot token from [@BotFather](https://t.me/BotFather) |
 | `WHITELIST_TELEGRAM_ID` | Yes | Your Telegram ID from [@userinfobot](https://t.me/userinfobot), comma-separated for multiple |
 | `GSNOTE_ROOT` | Yes | Single folder for audio, notes, and the counter |
-| `TRANSCRIBER_BINARY` | No | Whisper executable, default `whisper` |
-| `TRANSCRIBER_MODEL` | Yes | Whisper model name, e.g. `small` |
+| `TRANSCRIBER_BINARY` | No | whisper.cpp executable, default `whisper-cli` |
+| `TRANSCRIBER_MODEL` | Yes | whisper.cpp model path, default `/models/ggml-small-q5_1.bin` |
 | `TRANSCRIBER_THREADS` | No | CPU thread count |
 | `TRANSCRIBER_LANGUAGE` | No | ISO-639-1 like `id` or `en` |
 
-Install the local `openai-whisper` CLI and `ffmpeg`. No API key or paid STT service is used.
+Install `whisper.cpp` and provide `models/ggml-small-q5_1.bin`. No API key or paid STT service is used.
 
 ## Install
 
