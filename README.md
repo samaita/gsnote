@@ -7,7 +7,7 @@ A voice-only Telegram note bot. Send a voice message, get your words back as a m
 There is exactly one input: a Telegram voice message.
 
 ```text
-voice message -> raw audio saved -> ElevenLabs Scribe transcription -> transcript note
+voice message -> raw audio saved -> local OpenAI Whisper transcription -> transcript note
 ```
 
 Every capture lands in one folder (`GSNOTE_ROOT`):
@@ -33,11 +33,12 @@ Config is read from `~/.config/gsnote/.env` (or a local `.env`):
 | `TELEGRAM_BOT_TOKEN` | Yes | Bot token from [@BotFather](https://t.me/BotFather) |
 | `WHITELIST_TELEGRAM_ID` | Yes | Your Telegram ID from [@userinfobot](https://t.me/userinfobot), comma-separated for multiple |
 | `GSNOTE_ROOT` | Yes | Single folder for audio, notes, and the counter |
-| `ELEVEN_API_KEY` | For voice | ElevenLabs API key (`xi-...`) |
-| `ELEVEN_MODEL` | No | Default `scribe_v1` |
-| `ELEVEN_LANGUAGE` | No | ISO-639-1 like `id` or `en`. Empty = auto-detect |
+| `TRANSCRIBER_BINARY` | No | Whisper executable, default `whisper` |
+| `TRANSCRIBER_MODEL` | Yes | Whisper model name, e.g. `small` |
+| `TRANSCRIBER_THREADS` | No | CPU thread count |
+| `TRANSCRIBER_LANGUAGE` | No | ISO-639-1 like `id` or `en` |
 
-No other dependencies: no ffmpeg, no whisper.cpp, no LLM keys.
+Install the local `openai-whisper` CLI and `ffmpeg`. No API key or paid STT service is used.
 
 ## Install
 
@@ -46,7 +47,7 @@ curl -fsSL https://raw.githubusercontent.com/samaita/gsnote/main/install.sh | ba
 ```
 
 The script will:
-- Prompt for your Telegram bot token, Telegram ID, notes folder, and ElevenLabs API key
+- Prompt for your Telegram bot token, Telegram ID, and notes folder
 - Download the latest release binary to `~/.local/bin/gsnote`
 - Write config to `~/.config/gsnote/.env`
 - Optionally set up a systemd user service

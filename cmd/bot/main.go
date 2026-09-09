@@ -103,7 +103,7 @@ func main() {
 	}
 	h.StartVoiceProcessor(vp)
 	threads, _ := strconv.Atoi(os.Getenv("TRANSCRIBER_THREADS"))
-	worker := &jobs.Worker{Repo: vp.Repository(), Transcriber: transcription.Whisper{Binary: os.Getenv("TRANSCRIBER_BINARY"), Model: os.Getenv("TRANSCRIBER_MODEL"), Language: "id", Threads: threads}, Notifier: vp}
+	worker := &jobs.Worker{Repo: vp.Repository(), Transcriber: transcription.Whisper{Binary: os.Getenv("TRANSCRIBER_BINARY"), Model: os.Getenv("TRANSCRIBER_MODEL"), Language: os.Getenv("TRANSCRIBER_LANGUAGE"), Threads: threads}, Notifier: vp}
 	stop := make(chan struct{})
 	go worker.Run(stop)
 	defer close(stop)

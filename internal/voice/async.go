@@ -121,8 +121,7 @@ func (p *AsyncProcessor) Ready(n *jobs.Note, path string) error {
 	if _, err := p.bot.Send(tgbotapi.NewMessage(parseID(n.ChatID), fmt.Sprintf("✅ Transcription ready\n\n%s", n.ID))); err != nil {
 		return err
 	}
-	_, err := p.bot.Send(tgbotapi.NewDocument(parseID(n.ChatID), tgbotapi.FilePath(path)))
-	return err
+	return nil
 }
 
 func (p *AsyncProcessor) Failed(n *jobs.Note) error {

@@ -24,7 +24,7 @@ func NoteID(now time.Time, suffix string) string {
 	return fmt.Sprintf("VN-%s-%s", now.Format("20060102-150405"), suffix)
 }
 func (s *Storage) AudioPath(id, ext string) string { return filepath.Join(s.AudioDir, id+ext) }
-func (s *Storage) TranscriptPath(id string) string { return filepath.Join(s.TranscriptDir, id+".txt") }
+func (s *Storage) TranscriptPath(id string) string { return filepath.Join(s.TranscriptDir, id+".md") }
 func (s *Storage) SaveAudio(src, id, ext string) (string, error) {
 	dst := s.AudioPath(id, ext)
 	in, e := os.Open(src)

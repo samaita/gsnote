@@ -3,6 +3,7 @@ package jobs
 import (
 	"log"
 	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -53,6 +54,11 @@ func (w *Worker) process() {
 		if w.Notifier != nil {
 			_ = w.Notifier.Failed(n)
 		}
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(n.TranscriptPath), 0755); err != nil {
+		log.Printf("transcription_failed note_id=%s: %v", n.ID, err)
+		_ = w.Repo.Fail(n.ID, err.Error())
 		return
 	}
 	if err := os.WriteFile(n.TranscriptPath, []byte(text), 0644); err != nil {
