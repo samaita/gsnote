@@ -23,7 +23,7 @@ func TestWhisperTranscribeUsesWhisperCPPCLI(t *testing.T) {
 		t.Fatal(err)
 	}
 	binary := filepath.Join(dir, "whisper-cli")
-	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$WHISPER_TEST_ARGS\"\nprintf 'hasil transkripsi\\n'\n"
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$WHISPER_TEST_ARGS\"\nprintf 'log whisper-cli\\n' >&2\nprintf 'hasil transkripsi\\n'\n"
 	if err := os.WriteFile(binary, []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}

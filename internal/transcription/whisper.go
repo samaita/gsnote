@@ -1,6 +1,7 @@
 package transcription
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -39,9 +40,12 @@ func (w Whisper) Transcribe(audioPath string) (string, error) {
 	if w.Threads > 0 {
 		args = append(args, "-t", fmt.Sprint(w.Threads))
 	}
-	out, e := exec.CommandContext(context.Background(), w.Binary, args...).CombinedOutput()
-	if e != nil {
-		return "", fmt.Errorf("whisper: %w: %s", e, strings.TrimSpace(string(out)))
+	var stdout, stderr bytes.Buffer
+	cmd := exec.CommandContext(context.Background(), w.Binary, args...)
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if e := cmd.Run(); e != nil {
+		return "", fmt.Errorf("whisper: %w: %s", e, strings.TrimSpace(stderr.String()))
 	}
-	return strings.TrimSpace(string(out)), nil
+	return strings.TrimSpace(stdout.String()), nil
 }
