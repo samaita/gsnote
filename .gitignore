@@ -10,3 +10,8 @@ gsnote
 # Added by goreleaser init:
 dist/
 .codex
+
+# to store your models you download.
+# example: https://huggingface.co/ggerganov/whisper.cpp/tree/main
+models/
+.DS_Store
