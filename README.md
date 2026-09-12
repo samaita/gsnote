@@ -102,6 +102,51 @@ Install `whisper-cli` and `ffmpeg`, and download a model before running the
 installer. The installer validates both executables; gsnote validates the model
 path when it starts.
 
+## Docker Compose
+
+Docker Compose builds both gsnote and `whisper-cli`; the only host dependency is
+Docker with Compose. The notes directory uses a **bind mount**, not a Docker
+volume, so audio and markdown files remain directly in a directory on the
+machine.
+
+Create the configuration and the host directories/files first:
+
+```bash
+cp .env.example .env
+mkdir -p /home/user/samaita/workspace/obsidian-sync/Voice models
+# Download or copy a GGML model to models/ggml-small-q5_1.bin.
+```
+
+Edit `.env`. In particular, `GSNOTE_ROOT` must be an absolute path on the host:
+
+```dotenv
+TELEGRAM_BOT_TOKEN=
+WHITELIST_TELEGRAM_ID=
+GSNOTE_ROOT=/home/user/samaita/workspace/obsidian-sync/Voice
+TRANSCRIBER_BINARY=whisper-cli
+TRANSCRIBER_MODEL=models/ggml-small-q5_1.bin
+TRANSCRIBER_THREADS=2
+TRANSCRIBER_LANGUAGE=id
+GSNOTE_UID=1000
+GSNOTE_GID=1000
+```
+
+On Linux, get the ownership values with `id -u` and `id -g`. Create
+`GSNOTE_ROOT` before starting; Compose intentionally refuses to silently create
+it as a root-owned directory.
+
+Start and inspect the service:
+
+```bash
+docker compose up -d --build
+docker compose logs -f gsnote
+```
+
+Compose uses the host value of `GSNOTE_ROOT` as the bind-mount source and sets
+the application's container-side `GSNOTE_ROOT` to `/data`. Likewise, the host
+model file is mounted read-only at `/model/model.bin`. No named Docker volumes
+are used.
+
 ## Upgrade
 
 Run the same install script — it detects the installed version and upgrades only if a newer release is available:

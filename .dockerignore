@@ -1,0 +1,9 @@
+.git
+.github
+.env
+.codex
+dist
+gsnote
+models
+*.md
+!README.md
