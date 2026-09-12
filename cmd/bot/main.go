@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/joho/godotenv"
 
 	"github.com/axonigma/gsnote/internal/handler"
+	"github.com/axonigma/gsnote/internal/transcription"
 	"github.com/axonigma/gsnote/internal/voice"
 )
 
@@ -71,9 +73,32 @@ func main() {
 		log.Fatalf("create gsnote root: %v", err)
 	}
 
-	elevenAPIKey := os.Getenv("ELEVEN_API_KEY")
-	elevenModel := os.Getenv("ELEVEN_MODEL")
-	elevenLanguage := os.Getenv("ELEVEN_LANGUAGE")
+	transcriberBinary := os.Getenv("TRANSCRIBER_BINARY")
+	if transcriberBinary == "" {
+		transcriberBinary = "whisper-cli"
+	}
+	if _, err := exec.LookPath(transcriberBinary); err != nil {
+		log.Fatalf("find whisper-cli (%s): %v", transcriberBinary, err)
+	}
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		log.Fatalf("find ffmpeg: %v", err)
+	}
+
+	transcriberModel := os.Getenv("TRANSCRIBER_MODEL")
+	if transcriberModel == "" {
+		log.Fatal("TRANSCRIBER_MODEL is required")
+	}
+	if _, err := os.Stat(transcriberModel); err != nil {
+		log.Fatalf("read TRANSCRIBER_MODEL: %v", err)
+	}
+	transcriberLanguage := os.Getenv("TRANSCRIBER_LANGUAGE")
+	transcriberThreads := 0
+	if raw := os.Getenv("TRANSCRIBER_THREADS"); raw != "" {
+		transcriberThreads, err = strconv.Atoi(raw)
+		if err != nil || transcriberThreads < 1 {
+			log.Fatalf("TRANSCRIBER_THREADS must be a positive integer, got %q", raw)
+		}
+	}
 
 	whitelistTelegramIDMap := make(map[int64]bool)
 	whitelistTelegramIDStr := os.Getenv("WHITELIST_TELEGRAM_ID")
@@ -86,7 +111,7 @@ func main() {
 		}
 	}
 
-	log.Printf("config gsnote_root=%s eleven_model=%s eleven_language=%s", root, elevenModel, elevenLanguage)
+	log.Printf("config gsnote_root=%s transcriber_binary=%s transcriber_model=%s transcriber_language=%s transcriber_threads=%d", root, transcriberBinary, transcriberModel, transcriberLanguage, transcriberThreads)
 
 	bot, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
@@ -97,12 +122,14 @@ func main() {
 
 	h := handler.New(bot, whitelistTelegramIDMap)
 
-	if elevenAPIKey != "" {
-		vp := voice.NewProcessor(bot, elevenAPIKey, elevenModel, elevenLanguage, root)
-		h.StartVoiceProcessor(vp)
-	} else {
-		log.Printf("ELEVEN_API_KEY not set: voice capture disabled, /help only")
+	transcriber := transcription.Whisper{
+		Binary:   transcriberBinary,
+		Model:    transcriberModel,
+		Language: transcriberLanguage,
+		Threads:  transcriberThreads,
 	}
+	vp := voice.NewProcessor(bot, transcriber, root)
+	h.StartVoiceProcessor(vp)
 
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60

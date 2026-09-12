@@ -10,13 +10,15 @@ import (
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+
+	"github.com/axonigma/gsnote/internal/transcription"
 )
 
 // Processor orchestrates the voice capture pipeline: download the voice note,
 // persist the raw audio, transcribe it, and write the transcript note.
 type Processor struct {
 	bot         *tgbotapi.BotAPI
-	transcriber Transcriber
+	transcriber transcription.Transcriber
 	idMgr       *IDManager
 	root        string
 	fetchAudio  func(msg *tgbotapi.Message) (tmpPath, ext string, err error)
@@ -26,17 +28,13 @@ type Processor struct {
 
 // NewProcessor creates a new Processor instance. root is the single gsnote
 // folder holding audio files, transcript notes, and the ID counter.
-func NewProcessor(bot *tgbotapi.BotAPI, elevenKey, elevenModel, elevenLang, root string) *Processor {
+func NewProcessor(bot *tgbotapi.BotAPI, transcriber transcription.Transcriber, root string) *Processor {
 	p := &Processor{
-		bot: bot,
-		transcriber: &ElevenTranscriber{
-			APIKey:   elevenKey,
-			Model:    elevenModel,
-			Language: elevenLang,
-		},
-		idMgr:      NewIDManager(root),
-		root:       root,
-		lastMsgSeq: make(map[int64]bool),
+		bot:         bot,
+		transcriber: transcriber,
+		idMgr:       NewIDManager(root),
+		root:        root,
+		lastMsgSeq:  make(map[int64]bool),
 	}
 	p.fetchAudio = p.downloadVoice
 	p.send = p.sendToChat

@@ -7,7 +7,7 @@ markdown note saved next to the original audio. Nothing else.
 
 gsnote turns Telegram voice messages into durable, plain-text notes on your own
 disk. You record a thought on your phone; the bot downloads the audio, saves it,
-transcribes it with ElevenLabs Scribe, and writes a markdown note with the
+transcribes it locally with `whisper-cli`, and writes a markdown note with the
 verbatim transcript. No app to open, no cloud notebook, no lock-in — the files
 are yours.
 
@@ -17,7 +17,7 @@ command: `/help`. Everything else is voice.
 Every capture lands in one folder (`GSNOTE_ROOT`):
 
 ```text
-voice message -> raw audio saved -> ElevenLabs Scribe transcription -> transcript note
+voice message -> raw audio saved -> local whisper-cli transcription -> transcript note
 ```
 
 ```text
@@ -35,14 +35,17 @@ transcription never loses the recording — the audio stays put for retry.
 - **Telegram bot token** — create one with [@BotFather](https://t.me/BotFather).
 - **Telegram user ID** — get yours from [@userinfobot](https://t.me/userinfobot);
   only whitelisted IDs are served.
-- **ElevenLabs API key** (`xi-...`) — for speech-to-text via
-  [Scribe](https://elevenlabs.io/). Without it the bot still runs but voice
-  capture is disabled and only `/help` works.
+- **whisper.cpp** — install it so `whisper-cli` is available on `PATH`.
+- **ffmpeg** — converts Telegram OGG/Opus audio to the 16 kHz mono WAV input
+  used during transcription.
+- **A whisper.cpp GGML model** — download the model size you want and configure
+  its path with `TRANSCRIBER_MODEL`.
 - **A folder for your notes** — the single `GSNOTE_ROOT` holding audio, notes,
   and the counter.
 
-No other dependencies: no ffmpeg, no whisper.cpp, no LLM keys. Telegram OGG/Opus
-voice notes are uploaded to ElevenLabs as-is.
+Transcription runs on the same machine as gsnote. The original Telegram audio
+is retained; the converted WAV is temporary and removed after `whisper-cli`
+finishes. No speech-to-text API key or LLM key is needed.
 
 ## Running Dev
 
@@ -58,9 +61,10 @@ cp .env.example .env
 | `TELEGRAM_BOT_TOKEN` | Yes | Bot token from [@BotFather](https://t.me/BotFather) |
 | `WHITELIST_TELEGRAM_ID` | Yes | Your Telegram ID from [@userinfobot](https://t.me/userinfobot), comma-separated for multiple |
 | `GSNOTE_ROOT` | Yes | Single folder for audio, notes, and the counter |
-| `ELEVEN_API_KEY` | For voice | ElevenLabs API key (`xi-...`) |
-| `ELEVEN_MODEL` | No | Default `scribe_v1` |
-| `ELEVEN_LANGUAGE` | No | ISO-639-1 like `id` or `en`. Empty = auto-detect |
+| `TRANSCRIBER_BINARY` | No | `whisper-cli` executable name or absolute path; default `whisper-cli` |
+| `TRANSCRIBER_MODEL` | Yes | Path to a downloaded whisper.cpp GGML model |
+| `TRANSCRIBER_THREADS` | No | Positive worker thread count; empty lets `whisper-cli` choose |
+| `TRANSCRIBER_LANGUAGE` | No | ISO-639-1 code such as `id` or `en`; empty enables auto-detection |
 
 Then:
 
@@ -89,10 +93,14 @@ curl -fsSL https://raw.githubusercontent.com/samaita/gsnote/main/install.sh | ba
 
 The script will:
 
-- Prompt for your Telegram bot token, Telegram ID, notes folder, and ElevenLabs API key
+- Prompt for your Telegram bot token, Telegram ID, notes folder, and local Whisper settings
 - Download the latest release binary to `~/.local/bin/gsnote`
 - Write config to `~/.config/gsnote/.env`
 - Optionally set up a systemd user service
+
+Install `whisper-cli` and `ffmpeg`, and download a model before running the
+installer. The installer validates both executables; gsnote validates the model
+path when it starts.
 
 ## Upgrade
 

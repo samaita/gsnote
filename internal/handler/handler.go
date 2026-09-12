@@ -59,7 +59,7 @@ func (h *Handler) Handle(update tgbotapi.Update) {
 
 	if msg.Voice != nil {
 		if h.voiceSvc == nil {
-			h.reply(msg, "Voice capture unavailable: ElevenLabs STT not configured.")
+			h.reply(msg, "Voice capture unavailable: transcription is not configured.")
 			return
 		}
 		h.voiceSvc.ProcessVoiceMessage(msg)

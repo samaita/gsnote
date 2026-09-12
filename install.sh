@@ -13,10 +13,15 @@ if [ ! -f "$CONFIG_FILE" ]; then
     read -rp "Telegram bot token: " BOT_TOKEN </dev/tty
     read -rp "Notes folder [$HOME/gsnote]: " GSNOTE_ROOT_INPUT </dev/tty
     GSNOTE_ROOT="${GSNOTE_ROOT_INPUT:-$HOME/gsnote}"
-    read -rp "ElevenLabs API key: " ELEVEN_API_KEY_INPUT </dev/tty
-    read -rp "ElevenLabs model [scribe_v1]: " ELEVEN_MODEL_INPUT </dev/tty
-    ELEVEN_MODEL="${ELEVEN_MODEL_INPUT:-scribe_v1}"
-    read -rp "ElevenLabs language code, empty for auto-detect []: " ELEVEN_LANGUAGE_INPUT </dev/tty
+    read -rp "whisper-cli binary [whisper-cli]: " TRANSCRIBER_BINARY_INPUT </dev/tty
+    TRANSCRIBER_BINARY="${TRANSCRIBER_BINARY_INPUT:-whisper-cli}"
+    DEFAULT_MODEL="$HOME/.local/share/gsnote/models/ggml-small-q5_1.bin"
+    read -rp "Whisper model path [$DEFAULT_MODEL]: " TRANSCRIBER_MODEL_INPUT </dev/tty
+    TRANSCRIBER_MODEL="${TRANSCRIBER_MODEL_INPUT:-$DEFAULT_MODEL}"
+    read -rp "Whisper threads [2]: " TRANSCRIBER_THREADS_INPUT </dev/tty
+    TRANSCRIBER_THREADS="${TRANSCRIBER_THREADS_INPUT:-2}"
+    read -rp "Whisper language, empty for auto-detect [id]: " TRANSCRIBER_LANGUAGE_INPUT </dev/tty
+    TRANSCRIBER_LANGUAGE="${TRANSCRIBER_LANGUAGE_INPUT:-id}"
     read -rp "Whitelist Telegram ID (from @userinfobot): " WHITELIST_ID </dev/tty
 
     mkdir -p "$GSNOTE_ROOT"
@@ -27,9 +32,10 @@ if [ ! -f "$CONFIG_FILE" ]; then
 TELEGRAM_BOT_TOKEN=$(quote "$BOT_TOKEN")
 WHITELIST_TELEGRAM_ID=$(quote "$WHITELIST_ID")
 GSNOTE_ROOT=$(quote "$GSNOTE_ROOT")
-ELEVEN_API_KEY=$(quote "$ELEVEN_API_KEY_INPUT")
-ELEVEN_MODEL=$(quote "$ELEVEN_MODEL")
-ELEVEN_LANGUAGE=$(quote "$ELEVEN_LANGUAGE_INPUT")
+TRANSCRIBER_BINARY=$(quote "$TRANSCRIBER_BINARY")
+TRANSCRIBER_MODEL=$(quote "$TRANSCRIBER_MODEL")
+TRANSCRIBER_THREADS=$(quote "$TRANSCRIBER_THREADS")
+TRANSCRIBER_LANGUAGE=$(quote "$TRANSCRIBER_LANGUAGE")
 EOF
     echo ""
     echo "Config saved to: $CONFIG_FILE"
@@ -38,11 +44,23 @@ EOF
     echo "You can reconfigure anytime by editing: $CONFIG_FILE"
 else
     echo "Config already exists: $CONFIG_FILE"
-    if ! grep -q '^GSNOTE_ROOT=' "$CONFIG_FILE"; then
-        echo "Legacy config detected (pre-voice-only): no GSNOTE_ROOT found."
+    if ! grep -q '^GSNOTE_ROOT=' "$CONFIG_FILE" || ! grep -q '^TRANSCRIBER_MODEL=' "$CONFIG_FILE"; then
+        echo "Legacy config detected: required local transcription settings are missing."
         echo "Edit $CONFIG_FILE manually or remove it and re-run this script."
         exit 1
     fi
+fi
+
+if ! command -v ffmpeg >/dev/null 2>&1; then
+    echo "ffmpeg is required but was not found in PATH."
+    exit 1
+fi
+
+TRANSCRIBER_COMMAND=$(sed -n 's/^TRANSCRIBER_BINARY=["'"']\{0,1\}\([^"'"']*\)["'"']\{0,1\}$/\1/p' "$CONFIG_FILE")
+TRANSCRIBER_COMMAND="${TRANSCRIBER_COMMAND:-whisper-cli}"
+if ! command -v "$TRANSCRIBER_COMMAND" >/dev/null 2>&1 && [ ! -x "$TRANSCRIBER_COMMAND" ]; then
+    echo "$TRANSCRIBER_COMMAND is required but was not found or executable."
+    exit 1
 fi
 
 OS=$(uname -s)
@@ -100,6 +118,7 @@ After=network.target
 ExecStart=$BINARY_DIR/gsnote
 EnvironmentFile=$CONFIG_FILE
 Environment=HOME=$HOME
+Environment=PATH=$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin
 Restart=on-failure
 RestartSec=5
 
@@ -126,6 +145,7 @@ After=network.target
 [Service]
 ExecStart=$BINARY_DIR/gsnote
 EnvironmentFile=$CONFIG_FILE
+Environment=PATH=$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin
 Restart=on-failure
 RestartSec=5
 

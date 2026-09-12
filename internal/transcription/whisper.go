@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 )
 
@@ -25,15 +24,26 @@ func (w Whisper) Transcribe(audioPath string) (string, error) {
 	if w.Model == "" {
 		return "", fmt.Errorf("TRANSCRIBER_MODEL is required")
 	}
-	wavPath := filepath.Join(filepath.Dir(audioPath), strings.TrimSuffix(filepath.Base(audioPath), filepath.Ext(audioPath))+".wav")
+	if _, err := os.Stat(audioPath); err != nil {
+		return "", fmt.Errorf("open audio: %w", err)
+	}
+
+	wavFile, err := os.CreateTemp("", "gsnote-whisper-*.wav")
+	if err != nil {
+		return "", fmt.Errorf("create temporary wav: %w", err)
+	}
+	wavPath := wavFile.Name()
+	if err := wavFile.Close(); err != nil {
+		os.Remove(wavPath)
+		return "", fmt.Errorf("close temporary wav: %w", err)
+	}
+	defer os.Remove(wavPath)
+
 	convertArgs := []string{"-y", "-i", audioPath, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wavPath}
 	if out, e := exec.CommandContext(context.Background(), "ffmpeg", convertArgs...).CombinedOutput(); e != nil {
 		return "", fmt.Errorf("ffmpeg: %w: %s", e, strings.TrimSpace(string(out)))
 	}
-	if e := os.Remove(audioPath); e != nil {
-		return "", fmt.Errorf("ffmpeg: remove source audio: %w", e)
-	}
-	args := []string{"-m", w.Model, "-f", wavPath, "-otxt", "-of", "-", "-nt"}
+	args := []string{"-m", w.Model, "-f", wavPath, "-nt", "-np"}
 	if w.Language != "" {
 		args = append(args, "-l", w.Language)
 	}

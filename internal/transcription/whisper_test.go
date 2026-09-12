@@ -3,6 +3,8 @@ package transcription
 import (
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -41,15 +43,21 @@ func TestWhisperTranscribeUsesWhisperCPPCLI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wav := filepath.Join(dir, "voice.wav")
-	if _, err := os.Stat(wav); err != nil {
-		t.Fatalf("converted audio missing: %v", err)
+	if _, err := os.Stat(audio); err != nil {
+		t.Fatalf("source audio was not preserved: %v", err)
 	}
-	if _, err := os.Stat(audio); !os.IsNotExist(err) {
-		t.Fatalf("source audio still exists, err=%v", err)
+	gotArgs := strings.Split(strings.TrimSpace(string(args)), "\n")
+	if len(gotArgs) != 10 {
+		t.Fatalf("args = %q", string(args))
 	}
-	want := "-m\nmodels/ggml-small-q5_1.bin\n-f\n" + wav + "\n-otxt\n-of\n-\n-nt\n-l\nid\n-t\n2\n"
-	if string(args) != want {
-		t.Fatalf("args = %q, want %q", string(args), want)
+	if gotArgs[0] != "-m" || gotArgs[1] != "models/ggml-small-q5_1.bin" || gotArgs[2] != "-f" || !strings.HasPrefix(filepath.Base(gotArgs[3]), "gsnote-whisper-") || filepath.Ext(gotArgs[3]) != ".wav" {
+		t.Fatalf("model/audio args = %q", gotArgs[:4])
+	}
+	wantRest := []string{"-nt", "-np", "-l", "id", "-t", "2"}
+	if !reflect.DeepEqual(gotArgs[4:], wantRest) {
+		t.Fatalf("args = %q, want suffix %q", gotArgs, wantRest)
+	}
+	if _, err := os.Stat(gotArgs[3]); !os.IsNotExist(err) {
+		t.Fatalf("temporary wav was not removed, err=%v", err)
 	}
 }

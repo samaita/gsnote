@@ -24,7 +24,7 @@ func (f *fakeTranscriber) Transcribe(audioPath string) (string, error) {
 	return f.text, nil
 }
 
-func newTestProcessor(t *testing.T, root string, tr Transcriber) (*Processor, *[]string) {
+func newTestProcessor(t *testing.T, root string, tr interface{ Transcribe(string) (string, error) }) (*Processor, *[]string) {
 	t.Helper()
 	if err := os.MkdirAll(root, 0755); err != nil {
 		t.Fatalf("mkdir root: %v", err)
@@ -103,7 +103,7 @@ func TestProcessVoiceMessageDownloadFailure(t *testing.T) {
 
 func TestProcessVoiceMessageSTTFailureKeepsAudio(t *testing.T) {
 	root := t.TempDir()
-	p, sent := newTestProcessor(t, root, &fakeTranscriber{err: errors.New("eleven down")})
+	p, sent := newTestProcessor(t, root, &fakeTranscriber{err: errors.New("whisper failed")})
 	p.ProcessVoiceMessage(&tgbotapi.Message{MessageID: 1, Chat: &tgbotapi.Chat{ID: 1}})
 
 	if len(*sent) != 1 || !strings.Contains((*sent)[0], "audio saved for retry") {
