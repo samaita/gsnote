@@ -1,0 +1,31 @@
+services:
+  gsnote:
+    image: ghcr.io/samaita/gsnote:${GSNOTE_VERSION:-latest}
+    pull_policy: always
+    restart: unless-stopped
+    init: true
+    # Match the host owner so notes written through the bind mount remain editable.
+    user: "${GSNOTE_UID:-1000}:${GSNOTE_GID:-1000}"
+    environment:
+      HOME: /tmp/gsnote
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?Set TELEGRAM_BOT_TOKEN in .env}
+      WHITELIST_TELEGRAM_ID: ${WHITELIST_TELEGRAM_ID:?Set WHITELIST_TELEGRAM_ID in .env}
+      # These are deliberately container paths. Their host paths are below.
+      GSNOTE_ROOT: /data
+      TRANSCRIBER_BINARY: ${TRANSCRIBER_BINARY:-whisper-cli}
+      TRANSCRIBER_MODEL: /model/model.bin
+      # A deliberately empty value keeps the application's auto settings.
+      TRANSCRIBER_THREADS: ${TRANSCRIBER_THREADS-}
+      TRANSCRIBER_LANGUAGE: ${TRANSCRIBER_LANGUAGE-id}
+    volumes:
+      - type: bind
+        source: ${GSNOTE_ROOT:?Set GSNOTE_ROOT to an absolute host-machine directory in .env}
+        target: /data
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${TRANSCRIBER_MODEL:?Set TRANSCRIBER_MODEL to a host-machine GGML model file in .env}
+        target: /model/model.bin
+        read_only: true
+        bind:
+          create_host_path: false
