@@ -104,15 +104,18 @@ path when it starts.
 
 ## Docker Compose
 
-Docker Compose builds both gsnote and `whisper-cli`; the only host dependency is
-Docker with Compose. The notes directory uses a **bind mount**, not a Docker
-volume, so audio and markdown files remain directly in a directory on the
-machine.
+Docker Compose pulls the published `ghcr.io/samaita/gsnote:latest` image. The
+notes directory uses a **bind mount**, not a Docker volume, so audio and markdown
+files remain directly in a directory on the machine. You do not need to clone
+the repository or build the image on the deployment machine.
 
-Create the configuration and the host directories/files first:
+Create a deployment directory and download only the Compose configuration:
 
 ```bash
-cp .env.example .env
+mkdir -p gsnote-deploy
+cd gsnote-deploy
+curl -fsSLO https://raw.githubusercontent.com/samaita/gsnote/main/compose.yaml
+curl -fsSL https://raw.githubusercontent.com/samaita/gsnote/main/.env.example -o .env
 mkdir -p /home/user/samaita/workspace/obsidian-sync/Voice models
 # Download or copy a GGML model to models/ggml-small-q5_1.bin.
 ```
@@ -138,14 +141,34 @@ it as a root-owned directory.
 Start and inspect the service:
 
 ```bash
-docker compose up -d --build
-docker compose logs -f gsnote
+docker-compose pull
+docker-compose up -d
+docker-compose logs -f gsnote
+```
+
+If GHCR reports `denied`, authenticate before pulling (the package owner must
+also grant the account read access if the package is private):
+
+```bash
+echo "$GITHUB_TOKEN" | docker login ghcr.io -u YOUR_GITHUB_USERNAME --password-stdin
 ```
 
 Compose uses the host value of `GSNOTE_ROOT` as the bind-mount source and sets
 the application's container-side `GSNOTE_ROOT` to `/data`. Likewise, the host
 model file is mounted read-only at `/model/model.bin`. No named Docker volumes
 are used.
+
+### Publishing the container image
+
+The `Publish container image` GitHub Actions workflow builds `linux/amd64` and
+`linux/arm64` images and pushes them to `ghcr.io/samaita/gsnote`. A push to
+`main` publishes `latest`; a Git tag such as `v0.2.0` also publishes `0.2.0` and
+`0.2`. The workflow can also be started manually from the Actions tab.
+
+The workflow authenticates with GitHub's built-in `GITHUB_TOKEN`; no registry
+secret is required. After the first successful run, open the package settings
+at <https://github.com/samaita/gsnote/pkgs/container/gsnote> and change its
+visibility to public if deployment machines should pull without logging in.
 
 ## Upgrade
 

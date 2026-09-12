@@ -1,10 +1,7 @@
 services:
   gsnote:
-    build:
-      context: .
-      args:
-        VERSION: ${GSNOTE_VERSION:-dev}
-    image: gsnote:${GSNOTE_VERSION:-local}
+    image: ghcr.io/samaita/gsnote:${GSNOTE_VERSION:-latest}
+    pull_policy: always
     restart: unless-stopped
     init: true
     # Match the host owner so notes written through the bind mount remain editable.
