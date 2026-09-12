@@ -11,51 +11,56 @@ mkdir -p "$BINARY_DIR"
 
 if [ ! -f "$CONFIG_FILE" ]; then
     read -rp "Telegram bot token: " BOT_TOKEN </dev/tty
-    read -rp "GitHub token for /sync HTTPS remote [optional]: " GITHUB_TOKEN </dev/tty
-    read -rp "Git author name for /sync commits: " GIT_AUTHOR_NAME </dev/tty
-    read -rp "Git author email for /sync commits: " GIT_AUTHOR_EMAIL </dev/tty
-    read -rp "Vault (sync) folder [$HOME/vault]: " SYNC_ROOT_INPUT </dev/tty
-    SYNC_ROOT="${SYNC_ROOT_INPUT:-$HOME/vault}"
-    read -rp "Habits folder [$SYNC_ROOT/Habits]: " HABITS_ROOT_INPUT </dev/tty
-    HABITS_ROOT="${HABITS_ROOT_INPUT:-$SYNC_ROOT/Habits}"
+    read -rp "Notes folder [$HOME/gsnote]: " GSNOTE_ROOT_INPUT </dev/tty
+    GSNOTE_ROOT="${GSNOTE_ROOT_INPUT:-$HOME/gsnote}"
+    read -rp "whisper-cli binary [whisper-cli]: " TRANSCRIBER_BINARY_INPUT </dev/tty
+    TRANSCRIBER_BINARY="${TRANSCRIBER_BINARY_INPUT:-whisper-cli}"
+    DEFAULT_MODEL="$HOME/.local/share/gsnote/models/ggml-small-q5_1.bin"
+    read -rp "Whisper model path [$DEFAULT_MODEL]: " TRANSCRIBER_MODEL_INPUT </dev/tty
+    TRANSCRIBER_MODEL="${TRANSCRIBER_MODEL_INPUT:-$DEFAULT_MODEL}"
+    read -rp "Whisper threads [2]: " TRANSCRIBER_THREADS_INPUT </dev/tty
+    TRANSCRIBER_THREADS="${TRANSCRIBER_THREADS_INPUT:-2}"
+    read -rp "Whisper language, empty for auto-detect [id]: " TRANSCRIBER_LANGUAGE_INPUT </dev/tty
+    TRANSCRIBER_LANGUAGE="${TRANSCRIBER_LANGUAGE_INPUT:-id}"
     read -rp "Whitelist Telegram ID (from @userinfobot): " WHITELIST_ID </dev/tty
-    read -rp "Timezone [Asia/Jakarta]: " TIMEZONE_INPUT </dev/tty
-    TIMEZONE="${TIMEZONE_INPUT:-Asia/Jakarta}"
 
-    mkdir -p "$HABITS_ROOT"
-    mkdir -p "$SYNC_ROOT/Voices"
+    mkdir -p "$GSNOTE_ROOT"
 
     quote() { local v="$1"; [[ "$v" == \"*\" ]] && echo "$v" || echo "\"$v\""; }
 
     cat > "$CONFIG_FILE" <<EOF
 TELEGRAM_BOT_TOKEN=$(quote "$BOT_TOKEN")
-GSNOTE_GITHUB_TOKEN=$(quote "$GITHUB_TOKEN")
-GSNOTE_GIT_AUTHOR_NAME=$(quote "$GIT_AUTHOR_NAME")
-GSNOTE_GIT_AUTHOR_EMAIL=$(quote "$GIT_AUTHOR_EMAIL")
-SYNC_ROOT=$(quote "$SYNC_ROOT")
-HABITS_ROOT=$(quote "$HABITS_ROOT")
-VOICES_ROOT=$(quote "$SYNC_ROOT/Voices")
 WHITELIST_TELEGRAM_ID=$(quote "$WHITELIST_ID")
-TIMEZONE=$(quote "$TIMEZONE")
+GSNOTE_ROOT=$(quote "$GSNOTE_ROOT")
+TRANSCRIBER_BINARY=$(quote "$TRANSCRIBER_BINARY")
+TRANSCRIBER_MODEL=$(quote "$TRANSCRIBER_MODEL")
+TRANSCRIBER_THREADS=$(quote "$TRANSCRIBER_THREADS")
+TRANSCRIBER_LANGUAGE=$(quote "$TRANSCRIBER_LANGUAGE")
 EOF
     echo ""
     echo "Config saved to: $CONFIG_FILE"
-    echo "Sync (vault) folder: $SYNC_ROOT"
-    echo "Habits folder:       $HABITS_ROOT"
-    echo "Voices folder:       $SYNC_ROOT/Voices"
-    echo "Timezone:            $TIMEZONE"
+    echo "Notes folder: $GSNOTE_ROOT"
     echo ""
     echo "You can reconfigure anytime by editing: $CONFIG_FILE"
 else
     echo "Config already exists: $CONFIG_FILE"
-    if ! grep -q '^VOICES_ROOT=' "$CONFIG_FILE"; then
-        SYNC_ROOT_EXISTING=$(grep '^SYNC_ROOT=' "$CONFIG_FILE" | head -n1 | cut -d= -f2- | sed 's/^"//; s/"$//')
-        VOICES_ROOT="${SYNC_ROOT_EXISTING:-$HOME/vault}/Voices"
-        mkdir -p "$VOICES_ROOT"
-        quote() { local v="$1"; [[ "$v" == \"*\" ]] && echo "$v" || echo "\"$v\""; }
-        printf '\nVOICES_ROOT=%s\n' "$(quote "$VOICES_ROOT")" >> "$CONFIG_FILE"
-        echo "Added VOICES_ROOT to existing config: $VOICES_ROOT"
+    if ! grep -q '^GSNOTE_ROOT=' "$CONFIG_FILE" || ! grep -q '^TRANSCRIBER_MODEL=' "$CONFIG_FILE"; then
+        echo "Legacy config detected: required local transcription settings are missing."
+        echo "Edit $CONFIG_FILE manually or remove it and re-run this script."
+        exit 1
     fi
+fi
+
+if ! command -v ffmpeg >/dev/null 2>&1; then
+    echo "ffmpeg is required but was not found in PATH."
+    exit 1
+fi
+
+TRANSCRIBER_COMMAND=$(sed -n 's/^TRANSCRIBER_BINARY=["'"']\{0,1\}\([^"'"']*\)["'"']\{0,1\}$/\1/p' "$CONFIG_FILE")
+TRANSCRIBER_COMMAND="${TRANSCRIBER_COMMAND:-whisper-cli}"
+if ! command -v "$TRANSCRIBER_COMMAND" >/dev/null 2>&1 && [ ! -x "$TRANSCRIBER_COMMAND" ]; then
+    echo "$TRANSCRIBER_COMMAND is required but was not found or executable."
+    exit 1
 fi
 
 OS=$(uname -s)
@@ -113,6 +118,7 @@ After=network.target
 ExecStart=$BINARY_DIR/gsnote
 EnvironmentFile=$CONFIG_FILE
 Environment=HOME=$HOME
+Environment=PATH=$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin
 Restart=on-failure
 RestartSec=5
 
@@ -139,6 +145,7 @@ After=network.target
 [Service]
 ExecStart=$BINARY_DIR/gsnote
 EnvironmentFile=$CONFIG_FILE
+Environment=PATH=$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin
 Restart=on-failure
 RestartSec=5
 

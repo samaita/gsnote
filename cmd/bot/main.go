@@ -5,15 +5,16 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/joho/godotenv"
 
 	"github.com/axonigma/gsnote/internal/handler"
+	"github.com/axonigma/gsnote/internal/transcription"
 	"github.com/axonigma/gsnote/internal/voice"
 )
 
@@ -63,80 +64,54 @@ func main() {
 		log.Fatal("TELEGRAM_BOT_TOKEN is required")
 	}
 
-	habitsRoot := os.Getenv("HABITS_ROOT")
-	if habitsRoot == "" {
-		log.Fatal("HABITS_ROOT is required")
+	root := os.Getenv("GSNOTE_ROOT")
+	if root == "" {
+		log.Fatal("GSNOTE_ROOT is required")
 	}
 
-	syncRoot := os.Getenv("SYNC_ROOT")
-	if syncRoot == "" {
-		log.Fatal("SYNC_ROOT is required")
+	if err := os.MkdirAll(root, 0755); err != nil {
+		log.Fatalf("create gsnote root: %v", err)
 	}
 
-	voicesRoot := os.Getenv("VOICES_ROOT")
-	if voicesRoot == "" {
-		voicesRoot = filepath.Join(syncRoot, "Voices")
+	transcriberBinary := os.Getenv("TRANSCRIBER_BINARY")
+	if transcriberBinary == "" {
+		transcriberBinary = "whisper-cli"
+	}
+	if _, err := exec.LookPath(transcriberBinary); err != nil {
+		log.Fatalf("find whisper-cli (%s): %v", transcriberBinary, err)
+	}
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		log.Fatalf("find ffmpeg: %v", err)
 	}
 
-	sttBin := os.Getenv("STT_BIN")
-	if sttBin == "" {
-		sttBin = "whisper-cli"
+	transcriberModel := os.Getenv("TRANSCRIBER_MODEL")
+	if transcriberModel == "" {
+		log.Fatal("TRANSCRIBER_MODEL is required")
 	}
-	sttModel := os.Getenv("STT_MODEL")
-	sttLang := os.Getenv("STT_LANGUAGE")
-	if sttLang == "" {
-		sttLang = "auto"
+	if _, err := os.Stat(transcriberModel); err != nil {
+		log.Fatalf("read TRANSCRIBER_MODEL: %v", err)
 	}
-	ffmpegBin := os.Getenv("FFMPEG_BIN")
-	if ffmpegBin == "" {
-		ffmpegBin = "ffmpeg"
+	transcriberLanguage := os.Getenv("TRANSCRIBER_LANGUAGE")
+	transcriberThreads := 0
+	if raw := os.Getenv("TRANSCRIBER_THREADS"); raw != "" {
+		transcriberThreads, err = strconv.Atoi(raw)
+		if err != nil || transcriberThreads < 1 {
+			log.Fatalf("TRANSCRIBER_THREADS must be a positive integer, got %q", raw)
+		}
 	}
-
-	llmAPIKey := os.Getenv("LLM_API_KEY")
-	llmBaseURL := os.Getenv("LLM_BASE_URL")
-	if llmBaseURL == "" {
-		llmBaseURL = "https://api.openai.com/v1"
-	}
-	llmModel := os.Getenv("LLM_MODEL")
-	if llmModel == "" {
-		llmModel = "gpt-4o-mini"
-	}
-
-	githubToken := os.Getenv("GSNOTE_GITHUB_TOKEN")
-	gitAuthorName := os.Getenv("GSNOTE_GIT_AUTHOR_NAME")
-	gitAuthorEmail := os.Getenv("GSNOTE_GIT_AUTHOR_EMAIL")
-
-	tz := os.Getenv("TIMEZONE")
-	if tz == "" {
-		tz = "Asia/Jakarta"
-	}
-	loc, err := time.LoadLocation(tz)
-	if err != nil {
-		log.Fatalf("invalid TIMEZONE %q: %v", tz, err)
-	}
-	time.Local = loc
-	log.Printf("timezone=%s", tz)
 
 	whitelistTelegramIDMap := make(map[int64]bool)
 	whitelistTelegramIDStr := os.Getenv("WHITELIST_TELEGRAM_ID")
 	if whitelistTelegramIDStr != "" {
-		for i := range strings.Split(whitelistTelegramIDStr, ",") {
-			res, err := strconv.ParseInt(strings.Split(whitelistTelegramIDStr, ",")[i], 10, 64)
+		for _, part := range strings.Split(whitelistTelegramIDStr, ",") {
+			res, err := strconv.ParseInt(strings.TrimSpace(part), 10, 64)
 			if err == nil {
 				whitelistTelegramIDMap[res] = true
 			}
 		}
 	}
 
-	if err := os.MkdirAll(habitsRoot, 0755); err != nil {
-		log.Fatalf("create habits root: %v", err)
-	}
-
-	if err := os.MkdirAll(voicesRoot, 0755); err != nil {
-		log.Fatalf("create voices root: %v", err)
-	}
-
-	log.Printf("config habits_root=%s sync_root=%s voices_root=%s whitelist_telegram_id=%s", habitsRoot, syncRoot, voicesRoot, whitelistTelegramIDStr)
+	log.Printf("config gsnote_root=%s transcriber_binary=%s transcriber_model=%s transcriber_language=%s transcriber_threads=%d", root, transcriberBinary, transcriberModel, transcriberLanguage, transcriberThreads)
 
 	bot, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
@@ -145,18 +120,16 @@ func main() {
 
 	log.Printf("authorized as @%s\n", bot.Self.UserName)
 
-	var whitelistedTelegramIDs []string
-	for i := range whitelistTelegramIDMap {
-		whitelistedTelegramIDs = append(whitelistedTelegramIDs, fmt.Sprintf("%d", i))
-	}
-	log.Printf("allowed for %s\n", strings.Join(whitelistedTelegramIDs, ","))
+	h := handler.New(bot, whitelistTelegramIDMap)
 
-	h := handler.New(bot, habitsRoot, syncRoot, githubToken, gitAuthorName, gitAuthorEmail, whitelistTelegramIDMap)
-
-	if llmAPIKey != "" && sttModel != "" {
-		vp := voice.NewProcessor(bot, sttBin, sttModel, sttLang, llmAPIKey, llmBaseURL, llmModel, voicesRoot, syncRoot)
-		h.StartVoiceProcessor(vp)
+	transcriber := transcription.Whisper{
+		Binary:   transcriberBinary,
+		Model:    transcriberModel,
+		Language: transcriberLanguage,
+		Threads:  transcriberThreads,
 	}
+	vp := voice.NewProcessor(bot, transcriber, root)
+	h.StartVoiceProcessor(vp)
 
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
