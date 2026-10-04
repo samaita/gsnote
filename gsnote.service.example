@@ -1,7 +1,5 @@
 [Unit]
-Description=gsnote Telegram Bot
-# GSNOTE_ROOT is configured in %h/.config/gsnote/.env; Inbox/Voices and
-# Inbox/Texts are created beneath that data root.
+Description=gsnote Telegram Bot (queue-only)
 After=network.target
 
 [Service]
@@ -15,3 +13,8 @@ RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
+
+# Install this as a SECOND user service sharing the same env file. Copy this
+# file to ~/.config/systemd/user/gsnote-worker.service and change ExecStart:
+# ExecStart=/path/to/gsnote/gsnote worker
+# Enable both units: systemctl --user enable --now gsnote gsnote-worker

@@ -26,8 +26,8 @@ Run unit tests with `go test ./...`.
 | `TRANSCRIBER_MODEL` | worker | Local GGML model path |
 | `TRANSCRIBER_THREADS` | no | Positive worker thread count |
 | `TRANSCRIBER_LANGUAGE` | no | Language code; worker defaults to `en` |
+| `TRANSCRIBE_MAX_ATTEMPTS` | worker | Positive integer; default `5` |
 
-The bot does not require Whisper to run. The worker is intended to run as a
-separate persistent process (`gsnote worker`) and polls the SQLite queue. Do not
-run a worker and the bot as the same process: only the worker executes Whisper.
-`make air` remains available for development.
+## Worker and retry behavior
+
+Run `gsnote` for Telegram polling and `gsnote worker` as a separate long-running process using the same config and SQLite database. The bot only downloads, saves and enqueues audio; it does not need Whisper, so queued captures remain durable while the worker is offline. Worker shutdown on SIGINT/SIGTERM preserves unclaimed queue rows; stale in-progress claims are recovered on restart. Keep both processes supervised (for example, separate systemd services or named screen sessions). Failures retry at 30s, 60s, 120s and exponentially up to one hour; the default terminal limit is five attempts. Set `TRANSCRIBE_MAX_ATTEMPTS` to a positive integer to override it. Only terminal failures trigger failure notification. A successful worker writes a dated Markdown file linked to the retained OGG, marks the database row DONE, and replies to the original Telegram message. `make air` is for bot development only.

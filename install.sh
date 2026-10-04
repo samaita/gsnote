@@ -20,6 +20,7 @@ if [ ! -f "$CONFIG_FILE" ]; then
     TRANSCRIBER_THREADS="${TRANSCRIBER_THREADS_INPUT:-2}"
     read -rp "Whisper language [en]: " TRANSCRIBER_LANGUAGE_INPUT </dev/tty
     TRANSCRIBER_LANGUAGE="${TRANSCRIBER_LANGUAGE_INPUT:-en}"
+    TRANSCRIBE_MAX_ATTEMPTS="${TRANSCRIBE_MAX_ATTEMPTS:-5}"
     read -rp "Whitelist Telegram ID: " WHITELIST_ID </dev/tty
     mkdir -p "$GSNOTE_ROOT"
     quote() { local v="$1"; [[ "$v" == *'"'* ]] && v="${v//\"/\\\"}"; printf '"%s"' "$v"; }
@@ -32,6 +33,7 @@ TRANSCRIBER_BINARY=$(quote "$TRANSCRIBER_BINARY")
 TRANSCRIBER_MODEL=$(quote "$TRANSCRIBER_MODEL")
 TRANSCRIBER_THREADS=$(quote "$TRANSCRIBER_THREADS")
 TRANSCRIBER_LANGUAGE=$(quote "$TRANSCRIBER_LANGUAGE")
+TRANSCRIBE_MAX_ATTEMPTS=$(quote "$TRANSCRIBE_MAX_ATTEMPTS")
 EOF
     echo "Config saved to: $CONFIG_FILE"
 else
@@ -59,11 +61,11 @@ if [ ! -d "$ROOT_VALUE" ]; then
 fi
 
 if ! command -v ffmpeg >/dev/null 2>&1; then echo "ffmpeg is required but was not found in PATH." >&2; exit 1; fi
-TRANSCRIBER_COMMAND=$(read_config_value TRANSCRIBER_BINARY)
-if [ -z "$TRANSCRIBER_COMMAND" ]; then TRANSCRIBER_COMMAND=whisper-cli; fi
-if ! command -v "$TRANSCRIBER_COMMAND" >/dev/null 2>&1 && [ ! -x "$TRANSCRIBER_COMMAND" ]; then echo "$TRANSCRIBER_COMMAND was not found or executable." >&2; exit 1; fi
-MODEL=$(read_config_value TRANSCRIBER_MODEL) || { echo "Missing TRANSCRIBER_MODEL" >&2; exit 1; }
-if [ ! -f "$MODEL" ]; then echo "Whisper model not found: $MODEL" >&2; exit 1; fi
+MODEL=$(read_config_value TRANSCRIBER_MODEL)
+if [ -z "$MODEL" ] || [ ! -f "$MODEL" ]; then echo "Whisper model path is missing or invalid." >&2; exit 1; fi
+MAX_ATTEMPTS_RAW=$(read_config_value TRANSCRIBE_MAX_ATTEMPTS)
+if [ -z "$MAX_ATTEMPTS_RAW" ]; then MAX_ATTEMPTS_RAW=5; fi
+if ! [[ "$MAX_ATTEMPTS_RAW" =~ ^[1-9][0-9]*$ ]]; then echo "TRANSCRIBE_MAX_ATTEMPTS must be positive." >&2; exit 1; fi
 
 OS=$(uname -s); ARCH=$(uname -m)
 case "$ARCH" in x86_64) ARCH=x86_64;; aarch64|arm64) ARCH=arm64;; *) echo "Unsupported architecture: $ARCH"; exit 1;; esac
