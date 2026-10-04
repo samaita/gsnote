@@ -8,9 +8,11 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/joho/godotenv"
@@ -29,6 +31,8 @@ func main() {
 	}
 }
 func run(args []string) error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 	worker := false
 	if len(args) > 0 && args[0] == "worker" {
 		worker = true
@@ -75,7 +79,7 @@ func run(args []string) error {
 	}
 	defer repo.Close()
 	if worker {
-		return runWorker(repo, root)
+		return runWorker(repo, root, ctx)
 	}
 	token := os.Getenv("TELEGRAM_BOT_TOKEN")
 	if token == "" {
@@ -99,10 +103,19 @@ func run(args []string) error {
 	h.StartVoiceProcessor(vp)
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
-	for update := range bot.GetUpdatesChan(u) {
-		h.Handle(update)
+	updates := bot.GetUpdatesChan(u)
+	for {
+		select {
+		case <-ctx.Done():
+			bot.StopReceivingUpdates()
+			return nil
+		case update, ok := <-updates:
+			if !ok {
+				return nil
+			}
+			h.Handle(update)
+		}
 	}
-	return nil
 }
 func loadTranscriber() (transcription.Whisper, error) {
 	binary := os.Getenv("TRANSCRIBER_BINARY")
@@ -136,7 +149,18 @@ func loadTranscriber() (transcription.Whisper, error) {
 	}
 	return transcription.Whisper{Binary: binary, Model: model, Threads: threads, Language: language}, nil
 }
-func runWorker(repo *jobs.Repository, root string) error {
+func parseMaxAttempts(raw string) (int, error) {
+	if raw == "" {
+		return jobs.DefaultMaxAttempts, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 1 {
+		return 0, fmt.Errorf("TRANSCRIBE_MAX_ATTEMPTS must be a positive integer")
+	}
+	return n, nil
+}
+
+func runWorker(repo *jobs.Repository, root string, ctx context.Context) error {
 	trans, err := loadTranscriber()
 	if err != nil {
 		return err
@@ -157,5 +181,10 @@ func runWorker(repo *jobs.Repository, root string) error {
 			}
 		}
 	}
-	return (&voice.Worker{Repo: repo, Root: root, Transcriber: trans, Notify: notify}).Run(context.Background())
+	maxAttempts, err := parseMaxAttempts(os.Getenv("TRANSCRIBE_MAX_ATTEMPTS"))
+	if err != nil {
+		return err
+	}
+	w := &voice.Worker{Repo: repo, Root: root, Transcriber: trans, Notify: notify, MaxAttempts: maxAttempts}
+	return w.Run(ctx)
 }
