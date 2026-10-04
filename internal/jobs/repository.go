@@ -14,16 +14,21 @@ import (
 )
 
 const (
-	Queued       = "QUEUED"
-	Transcribing = "TRANSCRIBING"
-	Done         = "DONE"
-	Failed       = "FAILED"
+	Queued             = "QUEUED"
+	Transcribing       = "TRANSCRIBING"
+	Done               = "DONE"
+	Failed             = "FAILED"
+	DefaultMaxAttempts = 5
+	RetryBase          = 30 * time.Second
+	RetryMax           = time.Hour
 )
 
 type Job struct {
 	ID, ChatID, MessageID, FileID string
 	AudioPath, TranscriptPath     string
-	Status                        string
+	Status, ErrorMessage          string
+	Attempts                      int
+	NextAttemptAt                 *time.Time
 	CreatedAt                     time.Time
 }
 
@@ -61,19 +66,10 @@ func (r *Repository) init() error {
 		return fmt.Errorf("enable sqlite WAL: %w", err)
 	}
 	_, err := r.db.Exec(`CREATE TABLE IF NOT EXISTS notes (
-		id TEXT PRIMARY KEY,
-		telegram_chat_id TEXT NOT NULL,
-		telegram_message_id TEXT NOT NULL,
-		telegram_file_id TEXT NOT NULL,
-		audio_path TEXT NOT NULL,
-		transcript_path TEXT,
-		status TEXT NOT NULL,
-		created_at TEXT NOT NULL,
-		transcription_started_at TEXT,
-		transcription_finished_at TEXT,
-		error_message TEXT,
-		attempts INTEGER NOT NULL DEFAULT 0,
-		next_attempt_at TEXT
+		id TEXT PRIMARY KEY, telegram_chat_id TEXT NOT NULL, telegram_message_id TEXT NOT NULL,
+		telegram_file_id TEXT NOT NULL, audio_path TEXT NOT NULL, transcript_path TEXT,
+		status TEXT NOT NULL, created_at TEXT NOT NULL, transcription_started_at TEXT,
+		transcription_finished_at TEXT, error_message TEXT, attempts INTEGER NOT NULL DEFAULT 0, next_attempt_at TEXT
 	)`)
 	if err != nil {
 		return fmt.Errorf("create notes table: %w", err)
@@ -116,7 +112,6 @@ func (r *Repository) columns() (map[string]bool, error) {
 	}
 	return cols, nil
 }
-
 func (r *Repository) Close() error { return r.db.Close() }
 
 func (r *Repository) Insert(job Job) error {
@@ -129,14 +124,12 @@ func (r *Repository) Insert(job Job) error {
 	if job.Status == "" {
 		job.Status = Queued
 	}
-	_, err := r.db.Exec(`INSERT INTO notes (id, telegram_chat_id, telegram_message_id, telegram_file_id, audio_path, transcript_path, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		job.ID, job.ChatID, job.MessageID, job.FileID, job.AudioPath, nullable(job.TranscriptPath), job.Status, job.CreatedAt.UTC().Format(time.RFC3339Nano))
+	_, err := r.db.Exec(`INSERT INTO notes (id, telegram_chat_id, telegram_message_id, telegram_file_id, audio_path, transcript_path, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, job.ID, job.ChatID, job.MessageID, job.FileID, job.AudioPath, nullable(job.TranscriptPath), job.Status, job.CreatedAt.UTC().Format(time.RFC3339Nano))
 	if err != nil {
 		return fmt.Errorf("insert job %q: %w", job.ID, err)
 	}
 	return nil
 }
-
 func nullable(s string) any {
 	if s == "" {
 		return nil
@@ -144,25 +137,16 @@ func nullable(s string) any {
 	return s
 }
 
-// ClaimOldest atomically changes one due queued job to TRANSCRIBING.
 func (r *Repository) ClaimOldest(ctx context.Context, now time.Time) (*Job, error) {
 	stamp := now.UTC().Format(time.RFC3339Nano)
 	var job Job
 	var transcript sql.NullString
 	var created string
-	err := r.db.QueryRowContext(ctx, `UPDATE notes
-		SET status = ?, transcription_started_at = ?
-		WHERE id = (
-			SELECT id FROM notes
-			WHERE status = ? AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
-			ORDER BY COALESCE(next_attempt_at, created_at), created_at, id
-			LIMIT 1
-		) AND status = ?
-		RETURNING id, telegram_chat_id, telegram_message_id, telegram_file_id,
-			audio_path, transcript_path, created_at`,
-		Transcribing, stamp, Queued, stamp, Queued).Scan(
-		&job.ID, &job.ChatID, &job.MessageID, &job.FileID,
-		&job.AudioPath, &transcript, &created)
+	err := r.db.QueryRowContext(ctx, `UPDATE notes SET status = ?, transcription_started_at = ?
+		WHERE id = (SELECT id FROM notes WHERE status = ? AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
+		ORDER BY COALESCE(next_attempt_at, created_at), created_at, id LIMIT 1) AND status = ?
+		RETURNING id, telegram_chat_id, telegram_message_id, telegram_file_id, audio_path, transcript_path, created_at`,
+		Transcribing, stamp, Queued, stamp, Queued).Scan(&job.ID, &job.ChatID, &job.MessageID, &job.FileID, &job.AudioPath, &transcript, &created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -181,11 +165,71 @@ func (r *Repository) ClaimOldest(ctx context.Context, now time.Time) (*Job, erro
 func (r *Repository) Get(ctx context.Context, id string) (*Job, error) {
 	var job Job
 	var created string
-	err := r.db.QueryRowContext(ctx, `SELECT id, telegram_chat_id, telegram_message_id, telegram_file_id, audio_path, transcript_path, status, created_at FROM notes WHERE id = ?`, id).Scan(
-		&job.ID, &job.ChatID, &job.MessageID, &job.FileID, &job.AudioPath, &job.TranscriptPath, &job.Status, &created)
+	var next, transcript, failure sql.NullString
+	err := r.db.QueryRowContext(ctx, `SELECT id, telegram_chat_id, telegram_message_id, telegram_file_id, audio_path, transcript_path, status, error_message, attempts, next_attempt_at, created_at FROM notes WHERE id = ?`, id).Scan(&job.ID, &job.ChatID, &job.MessageID, &job.FileID, &job.AudioPath, &transcript, &job.Status, &failure, &job.Attempts, &next, &created)
 	if err != nil {
 		return nil, err
 	}
+	job.TranscriptPath = transcript.String
+	job.ErrorMessage = failure.String
 	job.CreatedAt, err = time.Parse(time.RFC3339Nano, created)
-	return &job, err
+	if err != nil {
+		return nil, err
+	}
+	if next.Valid {
+		t, e := time.Parse(time.RFC3339Nano, next.String)
+		if e != nil {
+			return nil, e
+		}
+		job.NextAttemptAt = &t
+	}
+	return &job, nil
+}
+
+// Fail records one failed attempt for a claimed job, schedules retry or marks it terminal.
+func (r *Repository) Fail(ctx context.Context, id, message string, now time.Time, maxAttempts int) (bool, error) {
+	if maxAttempts < 1 {
+		return false, errors.New("max attempts must be positive")
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, fmt.Errorf("begin failure transition: %w", err)
+	}
+	defer tx.Rollback()
+	var attempts int
+	if err := tx.QueryRowContext(ctx, `SELECT attempts FROM notes WHERE id = ? AND status = ?`, id, Transcribing).Scan(&attempts); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("read failed job: %w", err)
+	}
+	attempts++
+	if attempts >= maxAttempts {
+		_, err = tx.ExecContext(ctx, `UPDATE notes SET attempts=?, status=?, error_message=?, next_attempt_at=NULL, transcription_finished_at=? WHERE id=? AND status=?`, attempts, Failed, message, now.UTC().Format(time.RFC3339Nano), id, Transcribing)
+	} else {
+		next := now.UTC().Add(RetryDelay(attempts)).Format(time.RFC3339Nano)
+		_, err = tx.ExecContext(ctx, `UPDATE notes SET attempts=?, status=?, error_message=?, next_attempt_at=?, transcription_started_at=NULL, transcription_finished_at=NULL WHERE id=? AND status=?`, attempts, Queued, message, next, id, Transcribing)
+	}
+	if err != nil {
+		return false, fmt.Errorf("update failed job: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("commit failure transition: %w", err)
+	}
+	return attempts >= maxAttempts, nil
+}
+
+// RecoverStale requeues jobs abandoned by a crashed worker without using an attempt.
+func (r *Repository) RecoverStale(ctx context.Context, olderThan time.Time, now time.Time) (int64, error) {
+	result, err := r.db.ExecContext(ctx, `UPDATE notes SET status=?, transcription_started_at=NULL,
+		error_message='stale transcription recovered', next_attempt_at=NULL
+		WHERE status=? AND transcription_started_at < ?`, Queued, Transcribing, olderThan.UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return 0, fmt.Errorf("recover stale jobs: %w", err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("count recovered jobs: %w", err)
+	}
+	return count, nil
 }
