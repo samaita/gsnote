@@ -1,5 +1,7 @@
 [Unit]
 Description=gsnote Telegram Bot
+# GSNOTE_ROOT is configured in %h/.config/gsnote/.env; Inbox/Voices and
+# Inbox/Texts are created beneath that data root.
 After=network.target
 
 [Service]

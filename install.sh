@@ -11,7 +11,7 @@ mkdir -p "$BINARY_DIR"
 
 if [ ! -f "$CONFIG_FILE" ]; then
     read -rp "Telegram bot token: " BOT_TOKEN </dev/tty
-    read -rp "Notes folder [$HOME/gsnote]: " GSNOTE_ROOT_INPUT </dev/tty
+    read -rp "Data root (Inbox/ will be created beneath it) [$HOME/gsnote]: " GSNOTE_ROOT_INPUT </dev/tty
     GSNOTE_ROOT="${GSNOTE_ROOT_INPUT:-$HOME/gsnote}"
     read -rp "whisper-cli binary [whisper-cli]: " TRANSCRIBER_BINARY_INPUT </dev/tty
     TRANSCRIBER_BINARY="${TRANSCRIBER_BINARY_INPUT:-whisper-cli}"
@@ -39,7 +39,7 @@ TRANSCRIBER_LANGUAGE=$(quote "$TRANSCRIBER_LANGUAGE")
 EOF
     echo ""
     echo "Config saved to: $CONFIG_FILE"
-    echo "Notes folder: $GSNOTE_ROOT"
+    echo "Data root: $GSNOTE_ROOT (Inbox/Voices and Inbox/Texts are used beneath it)"
     echo ""
     echo "You can reconfigure anytime by editing: $CONFIG_FILE"
 else

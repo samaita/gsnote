@@ -1,7 +1,7 @@
 # gsnote
 
-A voice-only Telegram note bot. Send a voice message, get your words back as a
-markdown note saved next to the original audio. Nothing else.
+A voice-only Telegram note bot. Send a voice message; the original audio and
+transcript note are stored separately beneath the configured data root.
 
 ## Description & Purpose
 
@@ -14,16 +14,17 @@ are yours.
 There is exactly one input: a Telegram voice message. There is exactly one
 command: `/help`. Everything else is voice.
 
-Every capture lands in one folder (`GSNOTE_ROOT`):
+`GSNOTE_ROOT` is the data root. Captures are organized beneath it:
 
 ```text
-voice message -> raw audio saved -> local whisper-cli transcription -> transcript note
+voice message -> Inbox/Voices/<recording>.ogg
+             -> local whisper-cli transcription -> Inbox/Texts/<transcript>.md
 ```
 
 ```text
-00001-20260909153200.ogg   the original audio, saved before anything else runs
-00001-20260909.md          frontmatter (id, date, source, audio) + verbatim transcript
-_counter.txt               the sequential ID counter
+Inbox/Voices/00001-20260909153200.ogg   original audio, retained for retry
+Inbox/Texts/00001-20260909.md           frontmatter + verbatim transcript
+_counter.txt                            sequential ID counter at the data root
 ```
 
 The audio is written to disk **before** transcription runs, so a failed
@@ -40,8 +41,8 @@ transcription never loses the recording — the audio stays put for retry.
   used during transcription.
 - **A whisper.cpp GGML model** — download the model size you want and configure
   its path with `TRANSCRIBER_MODEL`.
-- **A folder for your notes** — the single `GSNOTE_ROOT` holding audio, notes,
-  and the counter.
+- **A data folder** — `GSNOTE_ROOT`; gsnote uses `Inbox/Voices/` and
+  `Inbox/Texts/` beneath it. The root is configurable for other installations.
 
 Transcription runs on the same machine as gsnote. The original Telegram audio
 is retained; the converted WAV is temporary and removed after `whisper-cli`
@@ -60,7 +61,7 @@ cp .env.example .env
 |----------|----------|-------------|
 | `TELEGRAM_BOT_TOKEN` | Yes | Bot token from [@BotFather](https://t.me/BotFather) |
 | `WHITELIST_TELEGRAM_ID` | Yes | Your Telegram ID from [@userinfobot](https://t.me/userinfobot), comma-separated for multiple |
-| `GSNOTE_ROOT` | Yes | Single folder for audio, notes, and the counter |
+| `GSNOTE_ROOT` | Yes | Data root containing `Inbox/Voices/` and `Inbox/Texts/` |
 | `TRANSCRIBER_BINARY` | No | `whisper-cli` executable name or absolute path; default `whisper-cli` |
 | `TRANSCRIBER_MODEL` | Yes | Path to a downloaded whisper.cpp GGML model |
 | `TRANSCRIBER_THREADS` | No | Positive worker thread count; empty lets `whisper-cli` choose |
@@ -70,6 +71,7 @@ Then:
 
 ```bash
 make dev     # go run ./cmd/bot
+make air     # rebuild and restart on Go source changes (requires Air)
 make build   # go build -o gsnote ./cmd/bot
 make test    # go test ./...
 ```
@@ -93,7 +95,7 @@ curl -fsSL https://raw.githubusercontent.com/samaita/gsnote/main/install.sh | ba
 
 The script will:
 
-- Prompt for your Telegram bot token, Telegram ID, notes folder, and local Whisper settings
+- Prompt for your Telegram bot token, Telegram ID, data root, and local Whisper settings
 - Download the latest release binary to `~/.local/bin/gsnote`
 - Write config to `~/.config/gsnote/.env`
 - Optionally set up a systemd user service

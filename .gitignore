@@ -1,5 +1,7 @@
 # Build
 gsnote
+/tmp/gsnote
+/tmp/
 
 # Markdown (except README)
 *.md
@@ -7,6 +9,11 @@ gsnote
 
 # Environment
 .env
+# Local capture data (keep documentation and other Inbox files visible)
+/Inbox/Voices/
+/Inbox/Texts/
+/gsnote.db*
+/notes/
 # Added by goreleaser init:
 dist/
 .codex
