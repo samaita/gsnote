@@ -137,6 +137,39 @@ func nullable(s string) any {
 	return s
 }
 
+// List returns persisted queue rows ordered by creation time.
+func (r *Repository) List(ctx context.Context) ([]Job, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT id,telegram_chat_id,telegram_message_id,telegram_file_id,audio_path,transcript_path,status,created_at,attempts,next_attempt_at,error_message FROM notes ORDER BY created_at,id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Job
+	for rows.Next() {
+		var j Job
+		var created string
+		var transcript, due, failure sql.NullString
+		if err := rows.Scan(&j.ID, &j.ChatID, &j.MessageID, &j.FileID, &j.AudioPath, &transcript, &j.Status, &created, &j.Attempts, &due, &failure); err != nil {
+			return nil, err
+		}
+		j.TranscriptPath = transcript.String
+		j.ErrorMessage = failure.String
+		j.CreatedAt, err = time.Parse(time.RFC3339Nano, created)
+		if err != nil {
+			return nil, err
+		}
+		if due.Valid {
+			d, e := time.Parse(time.RFC3339Nano, due.String)
+			if e != nil {
+				return nil, e
+			}
+			j.NextAttemptAt = &d
+		}
+		out = append(out, j)
+	}
+	return out, rows.Err()
+}
+
 func (r *Repository) ClaimOldest(ctx context.Context, now time.Time) (*Job, error) {
 	stamp := now.UTC().Format(time.RFC3339Nano)
 	var job Job
@@ -219,7 +252,22 @@ func (r *Repository) Fail(ctx context.Context, id, message string, now time.Time
 	return attempts >= maxAttempts, nil
 }
 
-// RecoverStale requeues jobs abandoned by a crashed worker without using an attempt.
+// Complete stores the output path and marks a claimed job done.
+func (r *Repository) Complete(ctx context.Context, id, transcriptPath string) error {
+	result, err := r.db.ExecContext(ctx, `UPDATE notes SET status=?, transcript_path=?, error_message=NULL, next_attempt_at=NULL, transcription_finished_at=? WHERE id=? AND status=?`, Done, transcriptPath, time.Now().UTC().Format(time.RFC3339Nano), id, Transcribing)
+	if err != nil {
+		return fmt.Errorf("complete job: %w", err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return fmt.Errorf("job %q is not claimed", id)
+	}
+	return nil
+}
+
 func (r *Repository) RecoverStale(ctx context.Context, olderThan time.Time, now time.Time) (int64, error) {
 	result, err := r.db.ExecContext(ctx, `UPDATE notes SET status=?, transcription_started_at=NULL,
 		error_message='stale transcription recovered', next_attempt_at=NULL
