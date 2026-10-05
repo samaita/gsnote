@@ -186,8 +186,20 @@ func (w *Worker) process(ctx context.Context, j *jobs.Job) {
 	}
 	name, title, body := jobs.TranscriptMarkdown(j.ID, filepath.Join("Inbox", "Voices", filepath.Base(j.AudioPath)), j.CreatedAt, "")
 	expected := filepath.Join(dir, j.CreatedAt.Format("2006-01-02")+" - "+name+".md")
-	if old, e := os.ReadFile(expected); e == nil && strings.Contains(string(old), "Source: gsnote voice "+j.ID) {
-		if e = w.Repo.Complete(ctx, j.ID, expected); e != nil {
+	var published string
+	files, _ := os.ReadDir(dir)
+	for _, file := range files {
+		if file.IsDir() || filepath.Ext(file.Name()) != ".md" {
+			continue
+		}
+		candidate := filepath.Join(dir, file.Name())
+		if old, err := os.ReadFile(candidate); err == nil && strings.Contains(string(old), "Source: gsnote voice "+j.ID) {
+			published = candidate
+			break
+		}
+	}
+	if published != "" {
+		if e := w.Repo.Complete(ctx, j.ID, published); e != nil {
 			log.Printf("complete %s: %v", j.ID, e)
 			return
 		}

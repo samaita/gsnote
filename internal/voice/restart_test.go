@@ -79,7 +79,7 @@ func TestWorkerCompletesAlreadyPublishedSameJobNote(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	n, e := repo.RecoverStale(context.Background(), created.Add(time.Second), created.Add(2*time.Second))
+	n, e := repo.RecoverStale(context.Background(), created.Add(2*time.Second), created.Add(3*time.Second))
 	if e != nil || n != 1 {
 		t.Fatalf("recovered=%d err=%v", n, e)
 	}
