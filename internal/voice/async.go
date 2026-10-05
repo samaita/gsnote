@@ -1,6 +1,7 @@
 package voice
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -229,12 +230,16 @@ func (w *Worker) process(ctx context.Context, j *jobs.Job) {
 	w.notifyTranscriptPreview(j, path)
 }
 func (w *Worker) notifyTranscriptPreview(j *jobs.Job, path string) {
-	transcript, err := os.ReadFile(path)
+	content, err := os.ReadFile(path)
 	if err != nil {
 		log.Printf("read transcript %s: %v", j.ID, err)
 		return
 	}
-	preview := []rune(string(transcript))
+	text := content
+	if marker := bytes.LastIndex(content, []byte("\n\n")); marker >= 0 {
+		text = content[marker+2:]
+	}
+	preview := []rune(strings.TrimSpace(string(text)))
 	if len(preview) > 140 {
 		preview = preview[:140]
 	}
