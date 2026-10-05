@@ -85,6 +85,7 @@ func (p *AsyncProcessor) ProcessVoiceMessage(m *tgbotapi.Message) {
 	created := m.Time()
 	job := jobs.Job{ID: id, ChatID: strconv.FormatInt(m.Chat.ID, 10), MessageID: strconv.Itoa(m.MessageID), FileID: voiceFileID(m), AudioPath: audio, CreatedAt: created}
 	if e = p.repo.Insert(job); e != nil {
+		log.Printf("queue voice %s in %s: %v", id, filepath.Join(p.root, "gsnote.db"), e)
 		p.reply(m, fmt.Sprintf("Voice saved as %s at %s, but queueing failed; recording was kept.", id, audio))
 		return
 	}
@@ -184,7 +185,7 @@ func (w *Worker) process(ctx context.Context, j *jobs.Job) {
 		w.fail(ctx, j, e)
 		return
 	}
-	name, title, body := jobs.TranscriptMarkdown(j.ID, filepath.Join("Inbox", "Voices", filepath.Base(j.AudioPath)), j.CreatedAt, "")
+	name, _, body := jobs.TranscriptMarkdown(j.ID, filepath.Join("Inbox", "Voices", filepath.Base(j.AudioPath)), j.CreatedAt, "")
 	expected := filepath.Join(dir, j.CreatedAt.Format("2006-01-02")+" - "+name+".md")
 	var published string
 	files, _ := os.ReadDir(dir)
@@ -203,7 +204,7 @@ func (w *Worker) process(ctx context.Context, j *jobs.Job) {
 			log.Printf("complete %s: %v", j.ID, e)
 			return
 		}
-		w.notify(j, fmt.Sprintf("Transcribed %s", j.ID))
+		w.notifyTranscriptPreview(j, published)
 		return
 	}
 	text, e := w.Transcriber.Transcribe(j.AudioPath)
@@ -211,7 +212,7 @@ func (w *Worker) process(ctx context.Context, j *jobs.Job) {
 		w.fail(ctx, j, e)
 		return
 	}
-	name, title, body = jobs.TranscriptMarkdown(j.ID, filepath.Join("Inbox", "Voices", filepath.Base(j.AudioPath)), j.CreatedAt, text)
+	name, _, body = jobs.TranscriptMarkdown(j.ID, filepath.Join("Inbox", "Voices", filepath.Base(j.AudioPath)), j.CreatedAt, text)
 	path, e := jobs.SaveTranscript(dir, j.CreatedAt, name, j.ID, body)
 	if e != nil {
 		old, re := os.ReadFile(expected)
@@ -225,7 +226,19 @@ func (w *Worker) process(ctx context.Context, j *jobs.Job) {
 		log.Printf("complete %s: %v", j.ID, e)
 		return
 	}
-	w.notify(j, fmt.Sprintf("Transcribed %s: %s", j.ID, title))
+	w.notifyTranscriptPreview(j, path)
+}
+func (w *Worker) notifyTranscriptPreview(j *jobs.Job, path string) {
+	transcript, err := os.ReadFile(path)
+	if err != nil {
+		log.Printf("read transcript %s: %v", j.ID, err)
+		return
+	}
+	preview := []rune(string(transcript))
+	if len(preview) > 140 {
+		preview = preview[:140]
+	}
+	w.notify(j, fmt.Sprintf("Transcribed %s: %s", j.ID, string(preview)))
 }
 func (w *Worker) fail(ctx context.Context, j *jobs.Job, e error) {
 	terminal, err := w.Repo.Fail(ctx, j.ID, e.Error(), time.Now().UTC(), w.MaxAttempts)

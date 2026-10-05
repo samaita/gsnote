@@ -89,6 +89,9 @@ func TestEnqueueDoesNotTranscribeWorkerWritesNote(t *testing.T) {
 	if tr.calls != 1 || note.calls != 1 {
 		t.Fatalf("STT=%d notify=%d", tr.calls, note.calls)
 	}
+	if !strings.Contains(note.text, "English transcript") || !strings.Contains(note.text, "Transcribed "+job.ID) {
+		t.Fatalf("notification=%q", note.text)
+	}
 }
 
 type fakeNotifier struct {

@@ -54,6 +54,26 @@ func TestOpenUpgradesPrototypeSchemaPreservingRows(t *testing.T) {
 	}
 }
 
+func TestInsertNewQueuedJobAllowsEmptyTranscriptPath(t *testing.T) {
+	r, err := Open(filepath.Join(t.TempDir(), "jobs.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	created := time.Now().UTC()
+	job := Job{ID: "VN-queue", AudioPath: "voice.ogg", CreatedAt: created}
+	if err := r.Insert(job); err != nil {
+		t.Fatal(err)
+	}
+	got, err := r.Get(context.Background(), job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != Queued || got.TranscriptPath != "" || got.AudioPath != job.AudioPath {
+		t.Fatalf("inserted job = %+v", got)
+	}
+}
+
 func TestClaimOldestOnlyClaimsDueQueuedJob(t *testing.T) {
 	r, err := Open(filepath.Join(t.TempDir(), "jobs.db"))
 	if err != nil {
