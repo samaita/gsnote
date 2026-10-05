@@ -1,19 +1,24 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/joho/godotenv"
 
 	"github.com/axonigma/gsnote/internal/handler"
+	"github.com/axonigma/gsnote/internal/jobs"
 	"github.com/axonigma/gsnote/internal/transcription"
 	"github.com/axonigma/gsnote/internal/voice"
 )
@@ -21,121 +26,187 @@ import (
 var version = "dev"
 
 func main() {
-	showVersion := flag.Bool("version", false, "print version and exit")
-	flag.Parse()
-	if *showVersion {
-		fmt.Println(version)
-		os.Exit(0)
+	if err := run(os.Args[1:]); err != nil {
+		log.Fatal(err)
 	}
-
-	log.Printf("gsnote version=%s", version)
-
+}
+func run(args []string) error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	worker := false
+	if len(args) > 0 && args[0] == "worker" {
+		worker = true
+		args = args[1:]
+	}
+	fs := flag.NewFlagSet("gsnote", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	show := fs.Bool("version", false, "print version and exit")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *show {
+		fmt.Println(version)
+		return nil
+	}
+	if fs.NArg() > 0 {
+		return fmt.Errorf("unknown arguments: %s", strings.Join(fs.Args(), " "))
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		log.Fatalf("get home dir: %v", err)
+		return err
 	}
-
-	configDir := filepath.Join(home, ".config", "gsnote")
-	if configDir == home {
-		log.Fatal("invalid config dir: equals home")
+	config := filepath.Join(home, ".config", "gsnote", ".env")
+	if _, err = os.Stat(config); os.IsNotExist(err) {
+		config = ".env"
 	}
-
-	if err := os.MkdirAll(configDir, 0755); err != nil {
-		log.Fatalf("create config dir: %v", err)
-	}
-
-	xdgConfig := filepath.Join(configDir, ".env")
-	localConfig := ".env"
-
-	loadedConfig := ""
-	if err := godotenv.Load(xdgConfig); err != nil {
-		if err2 := godotenv.Load(localConfig); err2 != nil {
-			log.Printf("missing config: ~/.config/gsnote/.env")
-		} else {
-			loadedConfig = localConfig
+	if err = godotenv.Load(config); err != nil && config != ".env" {
+		if localErr := godotenv.Load(".env"); localErr != nil {
+			return fmt.Errorf("load config %s or .env: %w", config, err)
 		}
-	} else {
-		loadedConfig = xdgConfig
+	} else if err != nil {
+		return fmt.Errorf("load config %s: %w", config, err)
 	}
-	log.Printf("config file=%s", loadedConfig)
-
-	token := os.Getenv("TELEGRAM_BOT_TOKEN")
-	if token == "" {
-		log.Fatal("TELEGRAM_BOT_TOKEN is required")
-	}
-
 	root := os.Getenv("GSNOTE_ROOT")
 	if root == "" {
-		log.Fatal("GSNOTE_ROOT is required")
+		return fmt.Errorf("GSNOTE_ROOT is required")
 	}
-
-	if err := os.MkdirAll(root, 0755); err != nil {
-		log.Fatalf("create gsnote root: %v", err)
+	if err = os.MkdirAll(root, 0755); err != nil {
+		return err
 	}
-
-	transcriberBinary := os.Getenv("TRANSCRIBER_BINARY")
-	if transcriberBinary == "" {
-		transcriberBinary = "whisper-cli"
+	repo, err := jobs.Open(filepath.Join(root, "gsnote.db"))
+	if err != nil {
+		return err
 	}
-	if _, err := exec.LookPath(transcriberBinary); err != nil {
-		log.Fatalf("find whisper-cli (%s): %v", transcriberBinary, err)
+	defer repo.Close()
+	if worker {
+		return runWorker(repo, root, ctx, nil)
 	}
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		log.Fatalf("find ffmpeg: %v", err)
+	token := os.Getenv("TELEGRAM_BOT_TOKEN")
+	if token == "" {
+		return fmt.Errorf("TELEGRAM_BOT_TOKEN is required")
 	}
-
-	transcriberModel := os.Getenv("TRANSCRIBER_MODEL")
-	if transcriberModel == "" {
-		log.Fatal("TRANSCRIBER_MODEL is required")
+	bot, err := tgbotapi.NewBotAPI(token)
+	if err != nil {
+		return err
 	}
-	if _, err := os.Stat(transcriberModel); err != nil {
-		log.Fatalf("read TRANSCRIBER_MODEL: %v", err)
-	}
-	transcriberLanguage := os.Getenv("TRANSCRIBER_LANGUAGE")
-	transcriberThreads := 0
-	if raw := os.Getenv("TRANSCRIBER_THREADS"); raw != "" {
-		transcriberThreads, err = strconv.Atoi(raw)
-		if err != nil || transcriberThreads < 1 {
-			log.Fatalf("TRANSCRIBER_THREADS must be a positive integer, got %q", raw)
+	allowed := map[int64]bool{}
+	for _, v := range strings.Split(os.Getenv("WHITELIST_TELEGRAM_ID"), ",") {
+		if id, e := strconv.ParseInt(strings.TrimSpace(v), 10, 64); e == nil {
+			allowed[id] = true
 		}
 	}
+	h := handler.New(bot, allowed)
+	vp, err := voice.NewAsyncProcessor(bot, root, repo)
+	if err != nil {
+		return err
+	}
+	h.StartVoiceProcessor(vp)
+	u := tgbotapi.NewUpdate(0)
+	u.Timeout = 60
+	wctx, cancelWorker := context.WithCancel(ctx)
+	defer cancelWorker()
+	workerStarted := make(chan error, 1)
+	workerDone := make(chan error, 1)
+	go func() { workerDone <- runWorker(repo, root, wctx, workerStarted) }()
+	if err := <-workerStarted; err != nil {
+		return fmt.Errorf("start transcription worker: %w", err)
+	}
+	updates := bot.GetUpdatesChan(u)
+	for {
+		select {
+		case <-ctx.Done():
+			bot.StopReceivingUpdates()
+			<-workerDone
+			return nil
+		case err := <-workerDone:
+			if err != nil {
+				return fmt.Errorf("transcription worker stopped: %w", err)
+			}
+			return fmt.Errorf("transcription worker stopped unexpectedly")
+		case update, ok := <-updates:
+			if !ok {
+				cancelWorker()
+				<-workerDone
+				return nil
+			}
+			h.Handle(update)
+		}
+	}
+}
+func loadTranscriber() (transcription.Whisper, error) {
+	binary := os.Getenv("TRANSCRIBER_BINARY")
+	if binary == "" {
+		binary = "whisper-cli"
+	}
+	if _, err := exec.LookPath(binary); err != nil {
+		return transcription.Whisper{}, err
+	}
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		return transcription.Whisper{}, err
+	}
+	model := os.Getenv("TRANSCRIBER_MODEL")
+	if model == "" {
+		return transcription.Whisper{}, fmt.Errorf("TRANSCRIBER_MODEL is required")
+	}
+	if _, err := os.Stat(model); err != nil {
+		return transcription.Whisper{}, err
+	}
+	threads := 0
+	if raw := os.Getenv("TRANSCRIBER_THREADS"); raw != "" {
+		var err error
+		threads, err = strconv.Atoi(raw)
+		if err != nil || threads < 1 {
+			return transcription.Whisper{}, fmt.Errorf("TRANSCRIBER_THREADS must be positive")
+		}
+	}
+	language := os.Getenv("TRANSCRIBER_LANGUAGE")
+	if language == "" {
+		language = "en"
+	}
+	return transcription.Whisper{Binary: binary, Model: model, Threads: threads, Language: language}, nil
+}
+func parseMaxAttempts(raw string) (int, error) {
+	if raw == "" {
+		return jobs.DefaultMaxAttempts, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 1 {
+		return 0, fmt.Errorf("TRANSCRIBE_MAX_ATTEMPTS must be a positive integer")
+	}
+	return n, nil
+}
 
-	whitelistTelegramIDMap := make(map[int64]bool)
-	whitelistTelegramIDStr := os.Getenv("WHITELIST_TELEGRAM_ID")
-	if whitelistTelegramIDStr != "" {
-		for _, part := range strings.Split(whitelistTelegramIDStr, ",") {
-			res, err := strconv.ParseInt(strings.TrimSpace(part), 10, 64)
-			if err == nil {
-				whitelistTelegramIDMap[res] = true
+func runWorker(repo *jobs.Repository, root string, ctx context.Context, started chan<- error) error {
+	trans, err := loadTranscriber()
+	if err != nil {
+		if started != nil {
+			started <- err
+		}
+		return err
+	}
+	var notify func(int64, int, string) error
+	if token := os.Getenv("TELEGRAM_BOT_TOKEN"); token != "" {
+		bot, e := tgbotapi.NewBotAPI(token)
+		if e != nil {
+			log.Printf("worker notifier disabled: %v", e)
+		} else {
+			notify = func(chat int64, msg int, text string) error {
+				m := tgbotapi.NewMessage(chat, text)
+				if msg > 0 {
+					m.ReplyToMessageID = msg
+				}
+				_, e := bot.Send(m)
+				return e
 			}
 		}
 	}
-
-	log.Printf("config gsnote_root=%s transcriber_binary=%s transcriber_model=%s transcriber_language=%s transcriber_threads=%d", root, transcriberBinary, transcriberModel, transcriberLanguage, transcriberThreads)
-
-	bot, err := tgbotapi.NewBotAPI(token)
+	maxAttempts, err := parseMaxAttempts(os.Getenv("TRANSCRIBE_MAX_ATTEMPTS"))
 	if err != nil {
-		log.Fatalf("init bot: %v", err)
+		return err
 	}
-
-	log.Printf("authorized as @%s\n", bot.Self.UserName)
-
-	h := handler.New(bot, whitelistTelegramIDMap)
-
-	transcriber := transcription.Whisper{
-		Binary:   transcriberBinary,
-		Model:    transcriberModel,
-		Language: transcriberLanguage,
-		Threads:  transcriberThreads,
+	w := &voice.Worker{Repo: repo, Root: root, Transcriber: trans, Notify: notify, MaxAttempts: maxAttempts}
+	if started != nil {
+		started <- nil
 	}
-	vp := voice.NewProcessor(bot, transcriber, root)
-	h.StartVoiceProcessor(vp)
-
-	u := tgbotapi.NewUpdate(0)
-	u.Timeout = 60
-
-	updates := bot.GetUpdatesChan(u)
-	for update := range updates {
-		h.Handle(update)
-	}
+	return w.Run(ctx)
 }

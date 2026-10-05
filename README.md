@@ -1,125 +1,33 @@
 # gsnote
 
-A voice-only Telegram note bot. Send a voice message, get your words back as a
-markdown note saved next to the original audio. Nothing else.
-
-## Description & Purpose
-
-gsnote turns Telegram voice messages into durable, plain-text notes on your own
-disk. You record a thought on your phone; the bot downloads the audio, saves it,
-transcribes it locally with `whisper-cli`, and writes a markdown note with the
-verbatim transcript. No app to open, no cloud notebook, no lock-in — the files
-are yours.
-
-There is exactly one input: a Telegram voice message. There is exactly one
-command: `/help`. Everything else is voice.
-
-Every capture lands in one folder (`GSNOTE_ROOT`):
-
-```text
-voice message -> raw audio saved -> local whisper-cli transcription -> transcript note
-```
-
-```text
-00001-20260909153200.ogg   the original audio, saved before anything else runs
-00001-20260909.md          frontmatter (id, date, source, audio) + verbatim transcript
-_counter.txt               the sequential ID counter
-```
-
-The audio is written to disk **before** transcription runs, so a failed
-transcription never loses the recording — the audio stays put for retry.
+A voice-only Telegram note bot. A voice message is saved as durable audio in
+`GSNOTE_ROOT/Inbox/Voices`, queued in SQLite, and immediately acknowledged with
+its VN number. A separate worker later transcribes in English and writes a
+verbatim Markdown note beneath `GSNOTE_ROOT/Inbox/Texts`, then replies to the
+original Telegram message. Audio is retained for retry.
 
 ## Requirements
 
-- **Go 1.25.7+** — to build from source (`go.mod` declares `go 1.25.7`).
-- **Telegram bot token** — create one with [@BotFather](https://t.me/BotFather).
-- **Telegram user ID** — get yours from [@userinfobot](https://t.me/userinfobot);
-  only whitelisted IDs are served.
-- **whisper.cpp** — install it so `whisper-cli` is available on `PATH`.
-- **ffmpeg** — converts Telegram OGG/Opus audio to the 16 kHz mono WAV input
-  used during transcription.
-- **A whisper.cpp GGML model** — download the model size you want and configure
-  its path with `TRANSCRIBER_MODEL`.
-- **A folder for your notes** — the single `GSNOTE_ROOT` holding audio, notes,
-  and the counter.
+- Go 1.25.7+ to build from source.
+- Telegram bot token and allowed Telegram user IDs.
+- Bot process: Telegram network access and writable `GSNOTE_ROOT`.
+- Worker: `whisper-cli`, `ffmpeg`, and a whisper.cpp GGML model.
 
-Transcription runs on the same machine as gsnote. The original Telegram audio
-is retained; the converted WAV is temporary and removed after `whisper-cli`
-finishes. No speech-to-text API key or LLM key is needed.
-
-## Running Dev
-
-Config is read from `~/.config/gsnote/.env` first, then a local `.env` in the
-working directory. Copy the example and fill it in:
-
-```bash
-cp .env.example .env
-```
+Config is loaded from `~/.config/gsnote/.env`, falling back to `.env` in the
+working directory. Start the bot with `make dev`, or build using `make build`.
+Run unit tests with `go test ./...`.
 
 | Variable | Required | Description |
-|----------|----------|-------------|
-| `TELEGRAM_BOT_TOKEN` | Yes | Bot token from [@BotFather](https://t.me/BotFather) |
-| `WHITELIST_TELEGRAM_ID` | Yes | Your Telegram ID from [@userinfobot](https://t.me/userinfobot), comma-separated for multiple |
-| `GSNOTE_ROOT` | Yes | Single folder for audio, notes, and the counter |
-| `TRANSCRIBER_BINARY` | No | `whisper-cli` executable name or absolute path; default `whisper-cli` |
-| `TRANSCRIBER_MODEL` | Yes | Path to a downloaded whisper.cpp GGML model |
-| `TRANSCRIBER_THREADS` | No | Positive worker thread count; empty lets `whisper-cli` choose |
-| `TRANSCRIBER_LANGUAGE` | No | ISO-639-1 code such as `id` or `en`; empty enables auto-detection |
+|---|---:|---|
+| `TELEGRAM_BOT_TOKEN` | bot | Telegram bot token |
+| `WHITELIST_TELEGRAM_ID` | bot | Comma-separated allowed Telegram IDs |
+| `GSNOTE_ROOT` | yes | Persistent data root; preserve the existing data path, since this new version expects the audio/text subfolders and an SQLite queue below it. |
+| `TRANSCRIBER_BINARY` | worker | CLI name/path; default `whisper-cli` |
+| `TRANSCRIBER_MODEL` | worker | Local GGML model path |
+| `TRANSCRIBER_THREADS` | no | Positive worker thread count |
+| `TRANSCRIBER_LANGUAGE` | no | Language code; worker defaults to `en` |
+| `TRANSCRIBE_MAX_ATTEMPTS` | worker | Positive integer; default `5` |
 
-Then:
+## Worker and retry behavior
 
-```bash
-make dev     # go run ./cmd/bot
-make build   # go build -o gsnote ./cmd/bot
-make test    # go test ./...
-```
-
-`make dev` runs the bot in the foreground and logs to stderr. Send a voice
-message to your bot from a whitelisted account to test a capture end to end.
-
-Before committing, run the same checks CI expects:
-
-```bash
-bash -n install.sh uninstall.sh
-go test ./...
-go build ./...
-```
-
-## Install
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/samaita/gsnote/main/install.sh | bash
-```
-
-The script will:
-
-- Prompt for your Telegram bot token, Telegram ID, notes folder, and local Whisper settings
-- Download the latest release binary to `~/.local/bin/gsnote`
-- Write config to `~/.config/gsnote/.env`
-- Optionally set up a systemd user service
-
-Install `whisper-cli` and `ffmpeg`, and download a model before running the
-installer. The installer validates both executables; gsnote validates the model
-path when it starts.
-
-## Upgrade
-
-Run the same install script — it detects the installed version and upgrades only if a newer release is available:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/samaita/gsnote/main/install.sh | bash
-```
-
-## Uninstall
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/samaita/gsnote/main/uninstall.sh | bash
-```
-
-## Commands
-
-One command exists: `/help`. Everything else is a voice message.
-
-## License
-
-MIT
+Run `gsnote` for Telegram polling and `gsnote worker` as a separate long-running process using the same config and SQLite database. The bot only downloads, saves and enqueues audio; it does not need Whisper, so queued captures remain durable while the worker is offline. Worker shutdown on SIGINT/SIGTERM preserves unclaimed queue rows; stale in-progress claims are recovered on restart. Keep both processes supervised (for example, separate systemd services or named screen sessions). Failures retry at 30s, 60s, 120s and exponentially up to one hour; the default terminal limit is five attempts. Set `TRANSCRIBE_MAX_ATTEMPTS` to a positive integer to override it. Only terminal failures trigger failure notification. A successful worker writes a dated Markdown file linked to the retained OGG, marks the database row DONE, and replies to the original Telegram message. `make air` is for bot development only.

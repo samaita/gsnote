@@ -1,6 +1,6 @@
 BINARY=gsnote
 
-.PHONY: build clean install
+.PHONY: build clean install dev air
 
 build:
 	go build -o $(BINARY) ./cmd/bot
@@ -13,3 +13,6 @@ clean:
 
 dev:
 	go run ./cmd/bot
+
+air:
+	air -c .air.toml
