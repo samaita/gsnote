@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -19,6 +20,11 @@ func TestVersionAndUnknownArgs(t *testing.T) {
 	}
 }
 
+func TestWorkerStartsWithBot(t *testing.T) {
+	if err := runWorker(nil, "", context.Background(), nil); err == nil {
+		t.Fatal("expected invalid worker setup")
+	}
+}
 func TestParseMaxAttempts(t *testing.T) {
 	for _, tt := range []struct {
 		value string

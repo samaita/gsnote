@@ -79,7 +79,7 @@ func run(args []string) error {
 	}
 	defer repo.Close()
 	if worker {
-		return runWorker(repo, root, ctx)
+		return runWorker(repo, root, ctx, nil)
 	}
 	token := os.Getenv("TELEGRAM_BOT_TOKEN")
 	if token == "" {
@@ -103,14 +103,30 @@ func run(args []string) error {
 	h.StartVoiceProcessor(vp)
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
+	wctx, cancelWorker := context.WithCancel(ctx)
+	defer cancelWorker()
+	workerStarted := make(chan error, 1)
+	workerDone := make(chan error, 1)
+	go func() { workerDone <- runWorker(repo, root, wctx, workerStarted) }()
+	if err := <-workerStarted; err != nil {
+		return fmt.Errorf("start transcription worker: %w", err)
+	}
 	updates := bot.GetUpdatesChan(u)
 	for {
 		select {
 		case <-ctx.Done():
 			bot.StopReceivingUpdates()
+			<-workerDone
 			return nil
+		case err := <-workerDone:
+			if err != nil {
+				return fmt.Errorf("transcription worker stopped: %w", err)
+			}
+			return fmt.Errorf("transcription worker stopped unexpectedly")
 		case update, ok := <-updates:
 			if !ok {
+				cancelWorker()
+				<-workerDone
 				return nil
 			}
 			h.Handle(update)
@@ -160,9 +176,12 @@ func parseMaxAttempts(raw string) (int, error) {
 	return n, nil
 }
 
-func runWorker(repo *jobs.Repository, root string, ctx context.Context) error {
+func runWorker(repo *jobs.Repository, root string, ctx context.Context, started chan<- error) error {
 	trans, err := loadTranscriber()
 	if err != nil {
+		if started != nil {
+			started <- err
+		}
 		return err
 	}
 	var notify func(int64, int, string) error
@@ -186,5 +205,8 @@ func runWorker(repo *jobs.Repository, root string, ctx context.Context) error {
 		return err
 	}
 	w := &voice.Worker{Repo: repo, Root: root, Transcriber: trans, Notify: notify, MaxAttempts: maxAttempts}
+	if started != nil {
+		started <- nil
+	}
 	return w.Run(ctx)
 }
