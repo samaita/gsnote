@@ -124,11 +124,20 @@ func (r *Repository) Insert(job Job) error {
 	if job.Status == "" {
 		job.Status = Queued
 	}
-	_, err := r.db.Exec(`INSERT INTO notes (id, telegram_chat_id, telegram_message_id, telegram_file_id, audio_path, transcript_path, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, job.ID, job.ChatID, job.MessageID, job.FileID, job.AudioPath, nullable(job.TranscriptPath), job.Status, job.CreatedAt.UTC().Format(time.RFC3339Nano))
+	if job.NextAttemptAt != nil && job.NextAttemptAt.Before(job.CreatedAt) {
+		return errors.New("next attempt cannot precede creation time")
+	}
+	_, err := r.db.Exec(`INSERT INTO notes (id, telegram_chat_id, telegram_message_id, telegram_file_id, audio_path, transcript_path, status, created_at, next_attempt_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, job.ID, job.ChatID, job.MessageID, job.FileID, job.AudioPath, nullable(job.TranscriptPath), job.Status, job.CreatedAt.UTC().Format(time.RFC3339Nano), formatTimePtr(job.NextAttemptAt))
 	if err != nil {
 		return fmt.Errorf("insert job %q: %w", job.ID, err)
 	}
 	return nil
+}
+func formatTimePtr(t *time.Time) any {
+	if t == nil {
+		return nil
+	}
+	return t.UTC().Format(time.RFC3339Nano)
 }
 func nullable(s string) any {
 	if s == "" {

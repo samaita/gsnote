@@ -3,6 +3,7 @@ package voice
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,8 +27,7 @@ type asyncNotifier struct {
 	text  string
 }
 
-func (n *asyncNotifier) send(_ int64, _ int, text string) error { n.calls++; n.text = text; return nil }
-
+func (n *asyncNotifier) send(_ int64, _ int, s string) error { n.calls++; n.text = s; return nil }
 func TestEnqueueDoesNotTranscribeWorkerWritesNote(t *testing.T) {
 	root := t.TempDir()
 	repo, e := jobs.Open(filepath.Join(root, "queue.db"))
@@ -39,21 +39,12 @@ func TestEnqueueDoesNotTranscribeWorkerWritesNote(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	fetch := func(*tgbotapi.Message) (string, string, error) {
-		f, e := os.CreateTemp(root, "upload-*.ogg")
-		if e != nil {
-			return "", "", e
-		}
-		if _, e = f.WriteString("ogg"); e != nil {
-			f.Close()
-			return "", "", e
-		}
-		f.Close()
-		return f.Name(), ".ogg", nil
+	fetch := func(*tgbotapi.Message) (io.ReadCloser, string, error) {
+		return io.NopCloser(strings.NewReader("ogg")), "file", nil
 	}
 	acks := 0
 	proc.SetDependencies(fetch, func(_ *tgbotapi.Message, s string) {
-		if s != "Queued and saved VN-00001" {
+		if s != "Queued and saved VN-file" {
 			t.Errorf("ack %q", s)
 		}
 		acks++
@@ -63,44 +54,40 @@ func TestEnqueueDoesNotTranscribeWorkerWritesNote(t *testing.T) {
 	if acks != 1 {
 		t.Fatalf("acks=%d", acks)
 	}
-	queued, e := repo.List(context.Background())
-	if e != nil || len(queued) != 1 {
-		t.Fatalf("queued=%v err=%v", queued, e)
+	rows, e := repo.List(context.Background())
+	if e != nil || len(rows) != 1 {
+		t.Fatalf("rows=%v err=%v", rows, e)
 	}
-	job := queued[0]
+	job := rows[0]
 	if job.Status != jobs.Queued || job.TranscriptPath != "" || job.FileID != "file" || job.ChatID != "42" {
-		t.Fatalf("queued row %+v", job)
+		t.Fatalf("job=%+v", job)
 	}
-	if _, e := os.Stat(job.AudioPath); e != nil {
+	if _, e = os.Stat(job.AudioPath); e != nil {
 		t.Fatal(e)
 	}
-	trans := &asyncFakeTranscriber{text: "English transcript"}
-	notify := &asyncNotifier{}
-	w := Worker{Repo: repo, Transcriber: trans, Root: root, Notify: notify.send}
-	claimed, e := repo.ClaimOldest(context.Background(), time.Now().Add(time.Second))
+	tr := &asyncFakeTranscriber{text: "English transcript"}
+	note := &asyncNotifier{}
+	w := Worker{Repo: repo, Root: root, Transcriber: tr, Notify: note.send}
+	claim, e := repo.ClaimOldest(context.Background(), time.Now().Add(time.Second))
 	if e != nil {
 		t.Fatal(e)
 	}
-	w.process(context.Background(), claimed)
-	if trans.calls != 1 {
-		t.Fatalf("STT calls=%d", trans.calls)
-	}
+	w.process(context.Background(), claim)
 	done, e := repo.Get(context.Background(), job.ID)
 	if e != nil {
 		t.Fatal(e)
 	}
-	if done.Status != jobs.Done || done.TranscriptPath == "" {
-		t.Fatalf("done=%+v", done)
+	name, _, body := jobs.TranscriptMarkdown(job.ID, filepath.Join("Inbox", "Voices", filepath.Base(job.AudioPath)), done.CreatedAt, "English transcript")
+	want := filepath.Join(root, "Inbox", "Texts", done.CreatedAt.Format("2006-01-02")+" - "+name+".md")
+	if done.Status != jobs.Done || done.TranscriptPath != want {
+		t.Fatalf("job=%+v want=%s", done, want)
 	}
-	body, e := os.ReadFile(done.TranscriptPath)
-	if e != nil {
-		t.Fatal(e)
+	content, e := os.ReadFile(want)
+	if e != nil || !strings.Contains(string(content), body) {
+		t.Fatalf("note=%s err=%v", content, e)
 	}
-	if !strings.Contains(string(body), "English transcript") {
-		t.Fatalf("note=%s", body)
-	}
-	if notify.calls != 1 {
-		t.Fatalf("notifications=%d", notify.calls)
+	if tr.calls != 1 || note.calls != 1 {
+		t.Fatalf("STT=%d notify=%d", tr.calls, note.calls)
 	}
 }
 
@@ -109,29 +96,28 @@ type fakeNotifier struct {
 	texts []string
 }
 
-func (n *fakeNotifier) send(_ int64, _ int, text string) error {
+func (n *fakeNotifier) send(_ int64, _ int, s string) error {
 	n.calls++
-	n.texts = append(n.texts, text)
+	n.texts = append(n.texts, s)
 	return nil
 }
-func TestFailureRetryAndTerminalNotification(t *testing.T) {
+func TestWorkerTerminalFailureNotice(t *testing.T) {
 	root := t.TempDir()
-	repo, e := jobs.Open(filepath.Join(root, "queue.db"))
+	repo, e := jobs.Open(filepath.Join(root, "q.db"))
 	if e != nil {
 		t.Fatal(e)
 	}
 	defer repo.Close()
-	audio := filepath.Join(root, "v.ogg")
+	audio := filepath.Join(root, "voice.ogg")
 	if e = os.WriteFile(audio, []byte("ogg"), 0600); e != nil {
 		t.Fatal(e)
 	}
 	created := time.Now().UTC()
-	if e = repo.Insert(jobs.Job{ID: "VN-retry", AudioPath: audio, CreatedAt: created}); e != nil {
+	if e = repo.Insert(jobs.Job{ID: "VN-fail", AudioPath: audio, CreatedAt: created}); e != nil {
 		t.Fatal(e)
 	}
-	notice := &fakeNotifier{}
-	tr := &asyncFakeTranscriber{err: errors.New("offline")}
-	w := Worker{Repo: repo, Root: root, Transcriber: tr, Notify: notice.send, MaxAttempts: 1}
+	notify := &fakeNotifier{}
+	w := Worker{Repo: repo, Root: root, Transcriber: &asyncFakeTranscriber{err: errors.New("offline")}, Notify: notify.send, MaxAttempts: 1}
 	job, e := repo.ClaimOldest(context.Background(), created.Add(time.Second))
 	if e != nil {
 		t.Fatal(e)
@@ -141,10 +127,10 @@ func TestFailureRetryAndTerminalNotification(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if state.Status != jobs.Failed || state.Attempts != 1 || notice.calls != 1 {
-		t.Fatalf("state=%+v notifications=%d", state, notice.calls)
+	if state.Status != jobs.Failed || state.Attempts != 1 || notify.calls != 1 {
+		t.Fatalf("state=%+v notify=%d", state, notify.calls)
 	}
 	if _, e = os.Stat(audio); e != nil {
-		t.Fatalf("original audio lost: %v", e)
+		t.Fatalf("OGG removed: %v", e)
 	}
 }
