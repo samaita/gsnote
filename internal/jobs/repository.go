@@ -58,6 +58,10 @@ func Open(path string) (*Repository, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	if err := r.db.Ping(); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("connect sqlite: %w", err)
+	}
 	return r, nil
 }
 

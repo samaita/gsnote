@@ -3,9 +3,10 @@ gsnote
 /tmp/gsnote
 /tmp/
 
-# Markdown (except README)
+# Markdown (except README and agent guidance)
 *.md
 !README.md
+!AGENTS.md
 
 # Environment
 .env
